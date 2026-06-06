@@ -10,7 +10,7 @@ pub enum Token {
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot, 
 
-    If, Else, For, Class,
+    If, Else, For, Class, Null,
 
     EOF
 }
@@ -181,6 +181,7 @@ impl<'a> Scanner<'a> {
                     "class" => Token::Class,
                     "true" => Token::Bool(true),
                     "false" => Token::Bool(false),
+                    "null" => Token::Null,
                     _ => Token::Identifier(s),
                 })
             },
