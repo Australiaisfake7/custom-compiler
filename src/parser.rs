@@ -217,9 +217,9 @@ impl Parser {
     }
     fn literal(&mut self) -> Result<Box<Expression>, ParseError> {
         return match self.advance()? {
-            Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(v)))),
-            Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(v)))),
-            Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(v)))),
+            Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(*v)))),
+            Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(*v)))),
+            Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
             Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
             Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
             other => Err(ParseError::UnexpectedToken { expected: "Literal", got: other.clone() })
