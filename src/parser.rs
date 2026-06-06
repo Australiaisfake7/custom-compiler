@@ -90,39 +90,44 @@ struct Parser {
 }
 
 impl Parser {
-    fn peek(&self) -> &Token {
-        return self.tokens.get(self.position).expect("Attempted to access noexistent token in parser");
+    fn peek(&self) -> Result<&Token, ParseError> {
+        self.tokens.get(self.position).ok_or(ParseError::UnexpectedEof)
     }
-    fn previous(&self) -> &Token {
-        return self.tokens.get(self.position - 1).expect("Attempted to access noexistent token in parser");
+    fn previous(&self) -> Result<&Token, ParseError> {
+        self.tokens.get(self.position - 1).ok_or(ParseError::UnexpectedEof)
     }
-    fn advance(&mut self) -> &Token {
+    fn advance(&mut self) -> Result<&Token, ParseError> {
         self.position += 1;
-        return self.previous();
+        self.previous()
     }
-    fn match_advance(&mut self, token: &Token) -> bool {
-        let t: &Token = self.peek();
-        if matches!(token, t) {
-            self.advance();
-            return true;
+    fn match_advance(&mut self, tokens: &[Token]) -> bool {
+        let t: &Token = match self.peek() {
+            Ok(v) => v,
+            Err(e) => { return false; }
+        };
+
+        for token in tokens {
+            if std::mem::discriminant(token) == std::mem::discriminant(t) {
+                self.advance();
+                return true;
+            }
         }
         return false;
     }
-    fn expression(&mut self) -> Box<Expression> {
+    fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.equality();
     }
-    fn equality(&mut self) -> Box<Expression> {
-        let mut expr: Box<Expression> = self.inequality();
+    fn equality(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.inequality()?;
 
-        while (self.match_advance(&Token::Equal) || self.match_advance(&Token::NotEqual)) {
-            let op: BinaryOp = match BinaryOp::try_from(self.previous()) {
+        while (self.match_advance(&[Token::Equal, Token::NotEqual])) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    println!("Invalid token {:?} for binary operator", token);
-                    BinaryOp::Null
+                    return Err(ParseError::UnexpectedToken { expected: "Equality", got: token });
                 }
             };
-            let right: Box<Expression> = self.inequality();
+            let right: Box<Expression> = self.inequality()?;
             expr = Box::new(Expression::Binary {
                 left: expr,
                 operator: op,
@@ -130,20 +135,19 @@ impl Parser {
             });
         }
 
-        return expr;
+        return Ok(expr);
     }
-    fn inequality(&mut self) -> Box<Expression> {
-        let mut expr: Box<Expression> = self.term();
+    fn inequality(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.term()?;
 
-        while (self.match_advance(&Token::Less) || self.match_advance(&Token::LessEqual) || self.match_advance(&Token::Greater) || self.match_advance(&Token::GreaterEqual)) {
-            let op: BinaryOp = match BinaryOp::try_from(self.previous()) {
+        while (self.match_advance(&[Token::Less, Token::LessEqual, Token::Greater, Token::GreaterEqual])) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    println!("Invalid token {:?} for binary operator", token);
-                    BinaryOp::Null
+                    return Err(ParseError::UnexpectedToken { expected: "Inequality", got: token });
                 }
             };
-            let right: Box<Expression> = self.inequality();
+            let right: Box<Expression> = self.term()?;
             expr = Box::new(Expression::Binary {
                 left: expr,
                 operator: op,
@@ -151,20 +155,19 @@ impl Parser {
             });
         }
 
-        return expr;
+        return Ok(expr);
     }
-    fn term(&mut self) -> Box<Expression> {
-        let mut expr: Box<Expression> = self.factor();
+    fn term(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.factor()?;
 
-        while (self.match_advance(&Token::Plus) || self.match_advance(&Token::Minus)) {
-            let op: BinaryOp = match BinaryOp::try_from(self.previous()) {
+        while (self.match_advance(&[Token::Plus, Token::Minus])) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    println!("Invalid token {:?} for binary operator", token);
-                    BinaryOp::Null
+                    return Err(ParseError::UnexpectedToken { expected: "Term", got: token });
                 }
             };
-            let right: Box<Expression> = self.inequality();
+            let right: Box<Expression> = self.factor()?;
             expr = Box::new(Expression::Binary {
                 left: expr,
                 operator: op,
@@ -172,20 +175,19 @@ impl Parser {
             });
         }
 
-        return expr;
+        return Ok(expr);
     }
-    fn factor(&mut self) -> Box<Expression> {
-        let mut expr: Box<Expression> = self.term();
+    fn factor(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.unary()?;
 
-        while (self.match_advance(&Token::Asterix) || self.match_advance(&Token::Slash)) {
-            let op: BinaryOp = match BinaryOp::try_from(self.previous()) {
+        while (self.match_advance(&[Token::Asterix, Token::Slash])) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    println!("Invalid token {:?} for binary operator", token);
-                    BinaryOp::Null
+                    return Err(ParseError::UnexpectedToken { expected: "Factor", got: token });
                 }
             };
-            let right: Box<Expression> = self.unary();
+            let right: Box<Expression> = self.unary()?;
             expr = Box::new(Expression::Binary {
                 left: expr,
                 operator: op,
@@ -193,33 +195,34 @@ impl Parser {
             });
         }
 
-        return expr;
+        return Ok(expr);
     }
-    fn unary(&mut self) -> Box<Expression> {
-        if self.match_advance(&Token::LNot) || self.match_advance(&Token::Minus) {
-            let op: UnaryOp = match UnaryOp::try_from(self.previous()) {
+    fn unary(&mut self) -> Result<Box<Expression>, ParseError> {
+        while (self.match_advance(&[Token::LNot, Token::Minus])) {
+            let op: UnaryOp = match UnaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    println!("Invalid token {:?} for unary operator", token);
-                    UnaryOp::Null
+                    return Err(ParseError::UnexpectedToken { expected: "Unary", got: token });
                 }
             };
-            let right: Box<Expression> = self.inequality();
-            return Box::new(Expression::Unary {
+            let right: Box<Expression> = self.unary()?;
+            let expr: Box<Expression> = Box::new(Expression::Unary {
                 operator: op,
                 right: right
             });
+            return Ok(expr);
         }
-        return self.literal();
+
+        return Ok(self.literal()?);
     }
-    fn literal(&self) -> Box<Expression> {
-        return Box::new(match self.advance() {
-            Token::Bool(val) => Expression::Literal(LiteralType::Bool(*val)),
-            Token::Null => Expression::Literal(LiteralType::Null),
-            Token::Int(val) => Expression::Literal(LiteralType::Int(*val)),
-            Token::Float(val) => Expression::Literal(LiteralType::Float(*val)),
-            Token::String(val) => Expression::Literal(LiteralType::String(*val)),
-            _ => println!()
-        });
+    fn literal(&self) -> Result<Box<Expression>, ParseError> {
+        return match self.advance()? {
+            &Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(v)))),
+            &Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(v)))),
+            &Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(v)))),
+            &Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v)))),
+            &Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
+            other => Err(ParseError::UnexpectedToken { expected: "Literal", got: other.clone() })
+        };
     }
 }
