@@ -201,7 +201,7 @@ impl<'a> Scanner<'a> {
             let token = self.read_next_token();
 
             match token {
-                Ok(t) if matches!(t, Token::EOF) => return Ok(tokens),
+                Ok(t) if matches!(t, Token::EOF) => { tokens.push(t); return Ok(tokens); },
                 Ok(t) => tokens.push(t),
                 Err(e) => return Err(e),
             }
