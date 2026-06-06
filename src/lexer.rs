@@ -1,6 +1,6 @@
 use std::str::Chars;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Slash, Asterix, Colon, Semicolon,
