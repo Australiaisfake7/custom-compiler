@@ -1,13 +1,14 @@
-use super::lexer::{Token, LexError};
-use std::{convert::TryFrom, path::Component::ParentDir};
+use super::lexer::Token;
+use std::convert::TryFrom;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ParseError {
-    UnexpectedToken { expected: &'static str, got: Token },
-    UnexpectedEof,
+    UnexpectedToken { _expected: &'static str, _got: Token },
+    InvalidReadIndex(usize),
 }
-
-enum BinaryOp {
+#[derive(Debug)]
+pub enum BinaryOp {
     Add,
     Subtract,
     Multiply,
@@ -22,13 +23,14 @@ enum BinaryOp {
     LogicalOr,
     Assign,
 }
-
-enum UnaryOp {
+#[derive(Debug)]
+pub enum UnaryOp {
     LNot,
     Negate,
 }
-
-enum LiteralType {
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum LiteralType {
     String(String),
     Int(i64),
     Float(f64),
@@ -36,7 +38,9 @@ enum LiteralType {
     Null,
 }
 
-enum Expression {
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum Expression {
     Binary {
         left: Box<Expression>,
         operator: BinaryOp,
@@ -84,17 +88,37 @@ impl TryFrom<&Token> for UnaryOp {
     }
 }
 
-struct Parser {
+pub struct Parser {
     tokens: Vec<Token>,
     position: usize
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        return Self {
+            tokens: Vec::new(),
+            position: 0
+        };
+    }
+}
+
 impl Parser {
+    pub fn new() -> Self {
+        return Default::default();
+    }
+    pub fn from_tokens(tokens: Vec<Token>) -> Self {
+        let mut p: Self = Self::new();
+        p.tokens = tokens;
+        return p;
+    }
     fn peek(&self) -> Result<&Token, ParseError> {
-        self.tokens.get(self.position).ok_or(ParseError::UnexpectedEof)
+        self.tokens.get(self.position).ok_or(ParseError::InvalidReadIndex(self.position))
     }
     fn previous(&self) -> Result<&Token, ParseError> {
-        self.tokens.get(self.position - 1).ok_or(ParseError::UnexpectedEof)
+        if self.position > 0 {
+            return self.tokens.get(self.position - 1).ok_or(ParseError::InvalidReadIndex(self.position - 1));
+        }
+        return Err(ParseError::InvalidReadIndex(usize::MAX));
     }
     fn advance(&mut self) -> Result<&Token, ParseError> {
         self.position += 1;
@@ -108,7 +132,7 @@ impl Parser {
 
         for token in tokens {
             if std::mem::discriminant(token) == disc {
-                self.advance();
+                let _ = self.advance();
                 return true;
             }
         }
@@ -120,11 +144,11 @@ impl Parser {
     fn equality(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.inequality()?;
 
-        while (self.match_advance(&[Token::Equal, Token::NotEqual])) {
+        while self.match_advance(&[Token::Equal, Token::NotEqual]) {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { expected: "Equality", got: token });
+                    return Err(ParseError::UnexpectedToken { _expected: "Equality", _got: token });
                 }
             };
             let right: Box<Expression> = self.inequality()?;
@@ -140,11 +164,11 @@ impl Parser {
     fn inequality(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.term()?;
 
-        while (self.match_advance(&[Token::Less, Token::LessEqual, Token::Greater, Token::GreaterEqual])) {
+        while self.match_advance(&[Token::Less, Token::LessEqual, Token::Greater, Token::GreaterEqual]) {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { expected: "Inequality", got: token });
+                    return Err(ParseError::UnexpectedToken { _expected: "Inequality", _got: token });
                 }
             };
             let right: Box<Expression> = self.term()?;
@@ -160,11 +184,11 @@ impl Parser {
     fn term(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.factor()?;
 
-        while (self.match_advance(&[Token::Plus, Token::Minus])) {
+        while self.match_advance(&[Token::Plus, Token::Minus]) {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { expected: "Term", got: token });
+                    return Err(ParseError::UnexpectedToken { _expected: "Term", _got: token });
                 }
             };
             let right: Box<Expression> = self.factor()?;
@@ -180,11 +204,11 @@ impl Parser {
     fn factor(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.unary()?;
 
-        while (self.match_advance(&[Token::Asterix, Token::Slash])) {
+        while self.match_advance(&[Token::Asterix, Token::Slash]) {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { expected: "Factor", got: token });
+                    return Err(ParseError::UnexpectedToken { _expected: "Factor", _got: token });
                 }
             };
             let right: Box<Expression> = self.unary()?;
@@ -202,7 +226,7 @@ impl Parser {
             let op: UnaryOp = match UnaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { expected: "Unary", got: token });
+                    return Err(ParseError::UnexpectedToken { _expected: "Unary", _got: token });
                 }
             };
             let right: Box<Expression> = self.unary()?;
@@ -222,7 +246,15 @@ impl Parser {
             Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
             Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
             Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
-            other => Err(ParseError::UnexpectedToken { expected: "Literal", got: other.clone() })
+            other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
         };
+    }
+    pub fn parse_tokens(&mut self) -> Result<Vec<Box<Expression>>, ParseError> {
+        let mut expressions: Vec<Box<Expression>> = Vec::new();
+        while *self.peek()? != Token::EOF {
+            expressions.push(self.expression()?);
+        }
+
+        return Ok(expressions);
     }
 }

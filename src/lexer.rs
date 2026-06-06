@@ -1,6 +1,6 @@
 use std::str::Chars;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Slash, Asterix, Colon, Semicolon,
@@ -17,23 +17,23 @@ pub enum Token {
 
 #[derive(Debug)]
 pub struct LexError {
-    message: String,
-    line: usize,
-    character: usize,
+    _message: String,
+    _line: usize,
+    _character: usize,
 }
 
 pub struct Scanner<'a> {
     source: Chars<'a>,
-    line: usize,
-    character: usize,
+    _line: usize,
+    _character: usize,
 }
 
 impl<'a> Default for Scanner<'a> {
     fn default() -> Self {
         return Self {
             source: "".chars(),
-            line: 0,
-            character: 0,
+            _line: 0,
+            _character: 0,
         };
     }
 }
@@ -45,16 +45,17 @@ impl<'a> Scanner<'a> {
             ..Default::default()
         };
     }
+    #[allow(dead_code)]
     pub fn new() -> Self {
         return Default::default();
     }
     fn advance(&mut self) -> Option<char> {
         match self.peek() {
             Some('\n') => {
-                self.line += 1;
-                self.character = 0;
+                self._line += 1;
+                self._character = 0;
             },
-            Some(_) => { self.character += 1; },
+            Some(_) => { self._character += 1; },
             None => (),
         }
         return self.source.next();
@@ -105,9 +106,9 @@ impl<'a> Scanner<'a> {
                 if self.match_advance('&') { Ok(Token::LAnd) }
                 else {
                     Err(LexError {
-                        message: "Expected '&&', single '&' is not valid.".to_string(),
-                        line: self.line,
-                        character: self.character,
+                        _message: "Expected '&&', single '&' is not valid.".to_string(),
+                        _line: self._line,
+                        _character: self._character,
                     })
                 }
             },
@@ -115,9 +116,9 @@ impl<'a> Scanner<'a> {
                 if self.match_advance('|') { Ok(Token::LOr) }
                 else {
                     Err(LexError {
-                        message: "Expected '||', single '|' is not valid.".to_string(),
-                        line: self.line,
-                        character: self.character,
+                        _message: "Expected '||', single '|' is not valid.".to_string(),
+                        _line: self._line,
+                        _character: self._character,
                     })
                 }
             },
@@ -128,17 +129,17 @@ impl<'a> Scanner<'a> {
                         Some('"') => break,
                         Some(c) => s.push(c),
                         None => return Err(LexError {
-                            message: "Unfinished string literal".to_string(),
-                            line: self.line,
-                            character: self.character,
+                            _message: "Unfinished string literal".to_string(),
+                            _line: self._line,
+                            _character: self._character,
                         }),
                     }
                 }
                 Ok(Token::String(s))
             },
             Some(c) if c.is_ascii_digit() => {
-                let line: usize = self.line;
-                let character: usize = self.character;
+                let _line: usize = self._line;
+                let _character: usize = self._character;
                 
                 let mut s: String = c.to_string();
                 let mut is_float: bool = false;
@@ -154,13 +155,13 @@ impl<'a> Scanner<'a> {
                 if is_float {
                     match s.parse::<f64>() {
                         Ok(n) => Ok(Token::Float(n)),
-                        Err(e) => Err(LexError { message: e.to_string(), line: line, character: character }),
+                        Err(e) => Err(LexError { _message: e.to_string(), _line: _line, _character: _character }),
                     }
                 }
                 else {
                     match s.parse::<i64>() {
                         Ok(n) => Ok(Token::Int(n)),
-                        Err(e) => Err(LexError { message: e.to_string(), line: line, character: character }),
+                        Err(e) => Err(LexError { _message: e.to_string(), _line: _line, _character: _character }),
                     }
                 }
             },
@@ -187,9 +188,9 @@ impl<'a> Scanner<'a> {
             },
             Some(c) if c == ' ' || c == '\t' || c == '\n' || c == '\r' => self.read_next_token(),
             Some(invalid) => Err(LexError { 
-                message: format!("Invalid character {} found.", invalid),
-                line: self.line,
-                character: self.character 
+                _message: format!("Invalid _character {} found.", invalid),
+                _line: self._line,
+                _character: self._character 
             }),
             None => Ok(Token::EOF),
         };
