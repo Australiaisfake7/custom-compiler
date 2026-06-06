@@ -101,13 +101,13 @@ impl Parser {
         self.previous()
     }
     fn match_advance(&mut self, tokens: &[Token]) -> bool {
-        let t: &Token = match self.peek() {
-            Ok(v) => v,
-            Err(e) => { return false; }
+        let disc = match self.peek() {
+            Ok(v) => std::mem::discriminant(v),
+            Err(_) => return false,
         };
 
         for token in tokens {
-            if std::mem::discriminant(token) == std::mem::discriminant(t) {
+            if std::mem::discriminant(token) == disc {
                 self.advance();
                 return true;
             }
@@ -198,7 +198,7 @@ impl Parser {
         return Ok(expr);
     }
     fn unary(&mut self) -> Result<Box<Expression>, ParseError> {
-        while (self.match_advance(&[Token::LNot, Token::Minus])) {
+        if self.match_advance(&[Token::LNot, Token::Minus]) {
             let op: UnaryOp = match UnaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
@@ -215,13 +215,13 @@ impl Parser {
 
         return Ok(self.literal()?);
     }
-    fn literal(&self) -> Result<Box<Expression>, ParseError> {
+    fn literal(&mut self) -> Result<Box<Expression>, ParseError> {
         return match self.advance()? {
-            &Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(v)))),
-            &Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(v)))),
-            &Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(v)))),
-            &Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v)))),
-            &Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
+            Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(v)))),
+            Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(v)))),
+            Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(v)))),
+            Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
+            Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
             other => Err(ParseError::UnexpectedToken { expected: "Literal", got: other.clone() })
         };
     }
