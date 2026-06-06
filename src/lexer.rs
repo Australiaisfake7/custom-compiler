@@ -5,7 +5,7 @@ pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Slash, Asterix, Colon, Semicolon,
 
-    Identifier(String), String(String), Int(i64), Float(f64),
+    Identifier(String), String(String), Int(i64), Float(f64), Bool(bool),
 
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot, 
@@ -179,6 +179,8 @@ impl<'a> Scanner<'a> {
                     "else" => Token::Else,
                     "for" => Token::For,
                     "class" => Token::Class,
+                    "true" => Token::Bool(true),
+                    "false" => Token::Bool(false),
                     _ => Token::Identifier(s),
                 })
             },
