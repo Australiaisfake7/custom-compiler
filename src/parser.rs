@@ -88,7 +88,7 @@ impl TryFrom<&Token> for UnaryOp {
     }
 }
 
-pub struct Parser {
+struct Parser {
     tokens: Vec<Token>,
     position: usize
 }
@@ -257,10 +257,11 @@ impl Parser {
             other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
         };
     }
-    pub fn parse_tokens(&mut self) -> Result<Vec<Box<Expression>>, ParseError> {
+    pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Box<Expression>>, ParseError> {
+        let mut parser: Parser = Parser::from_tokens(tokens);
         let mut expressions: Vec<Box<Expression>> = Vec::new();
-        while *self.peek()? != Token::EOF {
-            expressions.push(self.expression()?);
+        while *parser.peek()? != Token::EOF {
+            expressions.push(parser.expression()?);
         }
 
         return Ok(expressions);

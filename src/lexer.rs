@@ -1,5 +1,7 @@
 use std::str::Chars;
 
+use crate::lexer;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
@@ -22,7 +24,7 @@ pub struct LexError {
     _character: usize,
 }
 
-pub struct Scanner<'a> {
+struct Scanner<'a> {
     source: Chars<'a>,
     _line: usize,
     _character: usize,
@@ -195,7 +197,8 @@ impl<'a> Scanner<'a> {
             None => Ok(Token::EOF),
         };
     }
-    pub fn read_all_tokens(&mut self) -> Result<Vec<Token>, LexError> {
+    pub fn lex_chars(chars: Chars<'a>) -> Result<Vec<Token>, LexError> {
+        let mut lexer: Scanner = Scanner::from_source(chars);
         let mut tokens: Vec<Token> = Vec::new();
         loop {
             let token = self.read_next_token();
