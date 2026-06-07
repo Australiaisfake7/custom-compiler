@@ -103,10 +103,10 @@ impl Default for Parser {
 }
 
 impl Parser {
-    pub fn new() -> Self {
+    fn new() -> Self {
         return Default::default();
     }
-    pub fn from_tokens(tokens: Vec<Token>) -> Self {
+    fn from_tokens(tokens: Vec<Token>) -> Self {
         let mut p: Self = Self::new();
         p.tokens = tokens;
         return p;
@@ -257,13 +257,13 @@ impl Parser {
             other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
         };
     }
-    pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Box<Expression>>, ParseError> {
-        let mut parser: Parser = Parser::from_tokens(tokens);
-        let mut expressions: Vec<Box<Expression>> = Vec::new();
-        while *parser.peek()? != Token::EOF {
-            expressions.push(parser.expression()?);
-        }
+}
 
-        return Ok(expressions);
+pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Box<Expression>>, ParseError> {
+    let mut parser: Parser = Parser::from_tokens(tokens);
+    let mut expressions: Vec<Box<Expression>> = Vec::new();
+    while *parser.peek()? != Token::EOF {
+        expressions.push(parser.expression()?);
     }
+    return Ok(expressions);
 }

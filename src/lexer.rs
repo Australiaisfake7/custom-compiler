@@ -1,7 +1,5 @@
 use std::str::Chars;
 
-use crate::lexer;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
@@ -41,14 +39,14 @@ impl<'a> Default for Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn from_source(source: Chars<'a>) -> Self {
+    fn from_source(source: Chars<'a>) -> Self {
         return Self {
             source: source,
             ..Default::default()
         };
     }
     #[allow(dead_code)]
-    pub fn new() -> Self {
+    fn new() -> Self {
         return Default::default();
     }
     fn advance(&mut self) -> Option<char> {
@@ -197,17 +195,17 @@ impl<'a> Scanner<'a> {
             None => Ok(Token::EOF),
         };
     }
-    pub fn lex_chars(chars: Chars<'a>) -> Result<Vec<Token>, LexError> {
-        let mut lexer: Scanner = Scanner::from_source(chars);
-        let mut tokens: Vec<Token> = Vec::new();
-        loop {
-            let token = self.read_next_token();
+}
 
-            match token {
-                Ok(t) if matches!(t, Token::EOF) => { tokens.push(t); return Ok(tokens); },
-                Ok(t) => tokens.push(t),
-                Err(e) => return Err(e),
-            }
+pub fn lex_chars(chars: Chars<'_>) -> Result<Vec<Token>, LexError> {
+    let mut scanner: Scanner = Scanner::from_source(chars);
+    let mut tokens: Vec<Token> = Vec::new();
+    loop {
+        let token = scanner.read_next_token();
+        match token {
+            Ok(t) if matches!(t, Token::EOF) => { tokens.push(t); return Ok(tokens); },
+            Ok(t) => tokens.push(t),
+            Err(e) => return Err(e),
         }
     }
 }
