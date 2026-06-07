@@ -246,6 +246,14 @@ impl Parser {
             Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
             Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
             Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
+            Token::LeftBracket => {
+                let expr: Box<Expression> = self.expression()?;
+                match self.advance() {
+                    Ok(t) if t == &Token::RightBracket => return Ok(expr),
+                    Ok(t) => return Err(ParseError::UnexpectedToken { _expected: ")", _got: t.clone() }),
+                    Err(e) => Err(e),
+                }
+            },
             other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
         };
     }
