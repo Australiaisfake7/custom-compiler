@@ -259,11 +259,8 @@ impl Parser {
     }
 }
 
-pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Box<Expression>>, ParseError> {
+pub fn parse_tokens(tokens: Vec<Token>) -> Result<Box<Expression>, ParseError> {
     let mut parser: Parser = Parser::from_tokens(tokens);
-    let mut expressions: Vec<Box<Expression>> = Vec::new();
-    while *parser.peek()? != Token::EOF {
-        expressions.push(parser.expression()?);
-    }
-    return Ok(expressions);
+
+    return Ok(parser.expression()?);
 }
