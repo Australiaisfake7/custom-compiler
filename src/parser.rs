@@ -61,6 +61,11 @@ pub enum Expression {
     },
 }
 
+pub enum Statement {
+    Decleration {name: String, value: Box<Expression>},
+    Expression(Box<Expression>),
+}
+
 impl TryFrom<&Token> for BinaryOp {
     type Error = Token;
 
@@ -94,6 +99,12 @@ impl TryFrom<&Token> for UnaryOp {
             _ => Err(token.clone()),
         }
     }
+}
+
+pub fn parse_tokens(tokens: Vec<Token>) -> Result<Statement, ParseError> {
+    let mut parser: Parser = Parser::from_tokens(tokens);
+
+    return Ok(parser.statement()?);
 }
 
 struct Parser {
@@ -146,6 +157,13 @@ impl Parser {
         }
         return false;
     }
+    fn statement(&mut self) -> Result<Statement, ParseError> {
+        let stmt: Statement = Statement::Expression(self.expression()?);
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { _expected: "Semicolon after statement", _got: self.previous()?.clone() })
+        }
+        return Ok(stmt);
+    }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
     }
@@ -159,7 +177,7 @@ impl Parser {
                 return Ok(Box::new(Expression::Assignment { name: name, value: value }));
             }
 
-            return Err(ParseError::UnexpectedToken { _expected: "Assignment variable", _got: expr });
+            return Err(ParseError::UnexpectedAssignmentTarget);
         }
 
         return Ok(expr);
@@ -281,10 +299,4 @@ impl Parser {
             other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
         };
     }
-}
-
-pub fn parse_tokens(tokens: Vec<Token>) -> Result<Box<Expression>, ParseError> {
-    let mut parser: Parser = Parser::from_tokens(tokens);
-
-    return Ok(parser.expression()?);
 }
