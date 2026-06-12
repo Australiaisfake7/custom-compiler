@@ -1,3 +1,5 @@
+use crate::lexer::Token::Assign;
+
 use super::lexer::Token;
 use std::convert::TryFrom;
 
@@ -5,7 +7,8 @@ use std::convert::TryFrom;
 #[allow(dead_code)]
 pub enum ParseError {
     UnexpectedToken { _expected: &'static str, _got: Token },
-    InvalidReadIndex(usize),
+    UnexpectedReadIndex(usize),
+    UnexpectedAssignmentTarget,
 }
 #[derive(Debug)]
 pub enum BinaryOp {
@@ -51,6 +54,11 @@ pub enum Expression {
         right: Box<Expression>
     },
     Literal(LiteralType),
+    Variable(String),
+    Assignment {
+        name: String,
+        value: Box<Expression>
+    },
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -112,13 +120,13 @@ impl Parser {
         return p;
     }
     fn peek(&self) -> Result<&Token, ParseError> {
-        self.tokens.get(self.position).ok_or(ParseError::InvalidReadIndex(self.position))
+        self.tokens.get(self.position).ok_or(ParseError::UnexpectedReadIndex(self.position))
     }
     fn previous(&self) -> Result<&Token, ParseError> {
         if self.position > 0 {
-            return self.tokens.get(self.position - 1).ok_or(ParseError::InvalidReadIndex(self.position - 1));
+            return self.tokens.get(self.position - 1).ok_or(ParseError::UnexpectedReadIndex(self.position - 1));
         }
-        return Err(ParseError::InvalidReadIndex(usize::MAX));
+        return Err(ParseError::UnexpectedReadIndex(usize::MAX));
     }
     fn advance(&mut self) -> Result<&Token, ParseError> {
         self.position += 1;
@@ -139,7 +147,22 @@ impl Parser {
         return false;
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
-        return self.equality();
+        return self.assignment();
+    }
+    fn assignment(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.equality()?;
+
+        if self.match_advance(&[Token::Assign]) {
+            let value: Box<Expression> = self.assignment()?;
+
+            if let Expression::Variable(name) = *expr {
+                return Ok(Box::new(Expression::Assignment { name: name, value: value }));
+            }
+
+            return Err(ParseError::UnexpectedToken { _expected: "Assignment variable", _got: expr });
+        }
+
+        return Ok(expr);
     }
     fn equality(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.inequality()?;
@@ -246,6 +269,7 @@ impl Parser {
             Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
             Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
             Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
+            Token::Identifier(name) => Ok(Box::new(Expression::Variable(name.clone()))),
             Token::LeftBracket => {
                 let expr: Box<Expression> = self.expression()?;
                 match self.advance() {
