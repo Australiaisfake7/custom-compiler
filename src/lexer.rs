@@ -10,11 +10,16 @@ pub enum Token {
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot,
 
-    Let, IntType, FloatType, StringType, 
+    Let, DataType(DataType), 
 
     If, Else, For, Class, Null,
 
-    EOF
+    EOF,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataType {
+    Int, Float, String, Bool,
 }
 
 #[derive(Debug)]
@@ -186,9 +191,10 @@ impl<'a> Scanner<'a> {
                     "false" => Token::Bool(false),
                     "null" => Token::Null,
                     "let" => Token::Let,
-                    "int" => Token::IntType,
-                    "float" => Token::FloatType,
-                    "string" => Token::StringType,
+                    "int" => Token::DataType(DataType::Int),
+                    "float" => Token::DataType(DataType::Float),
+                    "string" => Token::DataType(DataType::String),
+                    "bool" => Token::DataType(DataType::Bool),
                     _ => Token::Identifier(s),
                 })
             },
