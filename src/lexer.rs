@@ -8,7 +8,9 @@ pub enum Token {
     Identifier(String), String(String), Int(i64), Float(f64), Bool(bool),
 
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
-    LAnd, LOr, LNot, 
+    LAnd, LOr, LNot,
+
+    Let, IntType, FloatType, StringType, 
 
     If, Else, For, Class, Null,
 
@@ -183,6 +185,10 @@ impl<'a> Scanner<'a> {
                     "true" => Token::Bool(true),
                     "false" => Token::Bool(false),
                     "null" => Token::Null,
+                    "let" => Token::Let,
+                    "int" => Token::IntType,
+                    "float" => Token::FloatType,
+                    "string" => Token::StringType,
                     _ => Token::Identifier(s),
                 })
             },
