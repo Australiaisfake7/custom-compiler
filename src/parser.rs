@@ -1,6 +1,4 @@
-use crate::lexer::Token::Assign;
-
-use super::lexer::Token;
+use super::lexer::{Token, DataType};
 use std::convert::TryFrom;
 
 #[derive(Debug)]
@@ -31,7 +29,7 @@ pub enum UnaryOp {
     LNot,
     Negate,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum LiteralType {
     String(String),
@@ -47,23 +45,23 @@ pub enum Expression {
     Binary {
         left: Box<Expression>,
         operator: BinaryOp,
-        right: Box<Expression>
+        right: Box<Expression>,
     },
     Unary {
         operator: UnaryOp,
-        right: Box<Expression>
+        right: Box<Expression>,
     },
     Literal(LiteralType),
     Variable(String),
     Assignment {
         name: String,
-        value: Box<Expression>
+        value: Box<Expression>,
     },
 }
 
 pub enum Statement {
-    Decleration {name: String, value: Box<Expression>},
     Expression(Box<Expression>),
+    Declaration {name: String, value: Option<Box<Expression>>, data_type: DataType},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -158,17 +156,44 @@ impl Parser {
         return false;
     }
     fn statement(&mut self) -> Result<Statement, ParseError> {
-        let stmt: Statement = Statement::Expression(self.expression()?);
-        if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "Semicolon after statement", _got: self.previous()?.clone() })
+        if self.match_advance(&[Token::Let]) {
+            return self.declaration();
         }
-        return Ok(stmt);
+
+        let expr: Box<Expression> = self.expression()?;
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() })
+        }
+
+        return Ok(Statement::Expression(expr));
+    }
+    fn declaration(&mut self) -> Result<Statement, ParseError> {
+        let t: DataType = match self.advance()? {
+            Token::DataType(d) => d.clone(),
+            token=> return Err(ParseError::UnexpectedToken { _expected: "Data Type", _got: token.clone() })
+            
+        };
+        let n: String = match self.advance()? {
+            Token::Identifier(i) => i.clone(),
+            token => return Err(ParseError::UnexpectedToken { _expected: "Identifier", _got: token.clone() })
+        };
+        let v: Box<Expression> = match self.advance()? {
+            Token::Semicolon => return Ok(Statement::Declaration { name: n, value: None, data_type: t }),
+            Token::Assign => self.expression()?,
+            token => return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: token.clone() })
+        };
+
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() });
+        }
+
+        return Ok(Statement::Declaration { name: n, value: Some(v), data_type: t });
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
     }
     fn assignment(&mut self) -> Result<Box<Expression>, ParseError> {
-        let mut expr: Box<Expression> = self.equality()?;
+        let expr: Box<Expression> = self.equality()?;
 
         if self.match_advance(&[Token::Assign]) {
             let value: Box<Expression> = self.assignment()?;
@@ -278,15 +303,15 @@ impl Parser {
             return Ok(expr);
         }
 
-        return Ok(self.literal()?);
+        return Ok(self.primary()?);
     }
-    fn literal(&mut self) -> Result<Box<Expression>, ParseError> {
+    fn primary(&mut self) -> Result<Box<Expression>, ParseError> {
         return match self.advance()? {
-            Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(*v)))),
-            Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(*v)))),
-            Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
-            Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
-            Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
+            Token::Bool(v) => Ok(Box::new(Expression::primary(LiteralType::Bool(*v)))),
+            Token::Int(v) => Ok(Box::new(Expression::primary(LiteralType::Int(*v)))),
+            Token::Float(v) => Ok(Box::new(Expression::primary(LiteralType::Float(*v)))),
+            Token::String(v) => Ok(Box::new(Expression::primary(LiteralType::String(v.clone())))),
+            Token::Null => Ok(Box::new(Expression::primary(LiteralType::Null))),
             Token::Identifier(name) => Ok(Box::new(Expression::Variable(name.clone()))),
             Token::LeftBracket => {
                 let expr: Box<Expression> = self.expression()?;
@@ -296,7 +321,7 @@ impl Parser {
                     Err(e) => Err(e),
                 }
             },
-            other => Err(ParseError::UnexpectedToken { _expected: "Literal", _got: other.clone() })
+            other => Err(ParseError::UnexpectedToken { _expected: "Primary", _got: other.clone() })
         };
     }
 }
