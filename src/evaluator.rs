@@ -11,7 +11,15 @@ pub enum EvaluateError {
     UndeclaredVariable(String),
 }
 
-pub fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
+pub fn evaluate_statements(statements: &Vec<Statement>, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
+    for statement in statements.iter() {
+        evaluate_statement(statement, vars)?;
+    }
+
+    Ok(())
+}
+
+fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
     return match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
             if is_declared(n, vars) {
@@ -29,6 +37,12 @@ pub fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, 
             let _ = evaluate_expression(expr, vars)?;
             Ok(())
         },
+        Statement::Block(stmts) => {
+            vars.push(HashMap::new());
+            evaluate_statements(stmts, vars)?;
+            vars.pop();
+            Ok(())
+        }
     }; 
 }
 

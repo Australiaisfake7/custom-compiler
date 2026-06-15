@@ -7,7 +7,7 @@ pub enum ParseError {
     UnexpectedReadIndex(usize),
     UnexpectedAssignmentTarget,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     Add,
     Subtract,
@@ -23,7 +23,7 @@ pub enum BinaryOp {
     LogicalOr,
     Assign,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     LNot,
     Negate,
@@ -59,6 +59,7 @@ pub enum Expression {
 pub enum Statement {
     Expression(Box<Expression>),
     Declaration {name: String, value: Box<Expression>, data_type: DataType},
+    Block(Vec<Statement>)
 }
 
 impl TryFrom<&Token> for BinaryOp {
