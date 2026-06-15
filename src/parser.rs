@@ -307,11 +307,11 @@ impl Parser {
     }
     fn primary(&mut self) -> Result<Box<Expression>, ParseError> {
         return match self.advance()? {
-            Token::Bool(v) => Ok(Box::new(Expression::primary(LiteralType::Bool(*v)))),
-            Token::Int(v) => Ok(Box::new(Expression::primary(LiteralType::Int(*v)))),
-            Token::Float(v) => Ok(Box::new(Expression::primary(LiteralType::Float(*v)))),
-            Token::String(v) => Ok(Box::new(Expression::primary(LiteralType::String(v.clone())))),
-            Token::Null => Ok(Box::new(Expression::primary(LiteralType::Null))),
+            Token::Bool(v) => Ok(Box::new(Expression::Literal(LiteralType::Bool(*v)))),
+            Token::Int(v) => Ok(Box::new(Expression::Literal(LiteralType::Int(*v)))),
+            Token::Float(v) => Ok(Box::new(Expression::Literal(LiteralType::Float(*v)))),
+            Token::String(v) => Ok(Box::new(Expression::Literal(LiteralType::String(v.clone())))),
+            Token::Null => Ok(Box::new(Expression::Literal(LiteralType::Null))),
             Token::Identifier(name) => Ok(Box::new(Expression::Variable(name.clone()))),
             Token::LeftBracket => {
                 let expr: Box<Expression> = self.expression()?;
