@@ -61,7 +61,7 @@ pub enum Expression {
 
 pub enum Statement {
     Expression(Box<Expression>),
-    Declaration {name: String, value: Option<Box<Expression>>, data_type: DataType},
+    Declaration {name: String, value: Box<Expression>, data_type: DataType},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -178,7 +178,7 @@ impl Parser {
             token => return Err(ParseError::UnexpectedToken { _expected: "Identifier", _got: token.clone() })
         };
         let v: Box<Expression> = match self.advance()? {
-            Token::Semicolon => return Ok(Statement::Declaration { name: n, value: None, data_type: t }),
+            Token::Semicolon => return Ok(Statement::Declaration { name: n, value: Box::new(Expression::Literal(LiteralType::Null)), data_type: t }),
             Token::Assign => self.expression()?,
             token => return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: token.clone() })
         };
@@ -187,7 +187,7 @@ impl Parser {
             return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() });
         }
 
-        return Ok(Statement::Declaration { name: n, value: Some(v), data_type: t });
+        return Ok(Statement::Declaration { name: n, value: v, data_type: t });
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
