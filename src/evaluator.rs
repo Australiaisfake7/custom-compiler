@@ -47,7 +47,7 @@ fn evaluate_expression(expression: Expression, vars: &mut [HashMap<String, Liter
         Expression::Assignment { name: n, value: v } => {
             if is_declared(&n, vars) {
                 let value: LiteralType = evaluate_expression(*v, vars)?;
-                assign_var(&n, &value, vars);
+                assign_var(&n, &value, vars)?;
                 Ok(value)
             }
             else {

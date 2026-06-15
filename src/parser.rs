@@ -2,7 +2,6 @@ use super::lexer::{Token, DataType};
 use std::convert::TryFrom;
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum ParseError {
     UnexpectedToken { _expected: &'static str, _got: Token },
     UnexpectedReadIndex(usize),
@@ -30,7 +29,6 @@ pub enum UnaryOp {
     Negate,
 }
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum LiteralType {
     String(String),
     Int(i64),
@@ -40,7 +38,6 @@ pub enum LiteralType {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum Expression {
     Binary {
         left: Box<Expression>,

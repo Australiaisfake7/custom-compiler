@@ -52,7 +52,6 @@ impl<'a> Scanner<'a> {
             ..Default::default()
         };
     }
-    #[allow(dead_code)]
     fn new() -> Self {
         return Default::default();
     }
