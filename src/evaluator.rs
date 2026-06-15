@@ -1,28 +1,97 @@
-use crate::parser::{BinaryOp, Expression, LiteralType, UnaryOp};
+use std::collections::HashMap;
+
+use crate::parser::{BinaryOp, Expression, Statement, LiteralType, UnaryOp};
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum EvaluateError {
     UnexpectedBinaryOperands { operands: (LiteralType, LiteralType), operator: BinaryOp},
     UnexpectedUnaryOperand { operand: LiteralType, operator: UnaryOp},
+    VariableShadowing(String),
+    UndeclaredVariable(String),
 }
 
-pub fn evaluate(expression: Expression) -> Result<LiteralType, EvaluateError> {
+pub fn evaluate_statment(statement: Statement, vars: &mut [HashMap<String, LiteralType>]) -> Result<(), EvaluateError> {
+    return match statement {
+        Statement::Declaration { name: n, value: v , data_type: t} => {
+            if is_declared(&n, vars) {
+                Err(EvaluateError::VariableShadowing(n))
+            }
+            else {
+                let value: LiteralType = evaluate_expression(*v, vars)?;
+                if let Some(h) = vars.last_mut() {
+                    h.insert(n, value);
+                }
+                Ok(())
+            }
+        },
+        Statement::Expression(_) => Ok(()),
+    } 
+}
+
+fn evaluate_expression(expression: Expression, vars: &mut [HashMap<String, LiteralType>]) -> Result<LiteralType, EvaluateError> {
     return match expression {
         Expression::Literal(t) => Ok(t),
         Expression::Unary { operator: o, right: r} => Ok({
             match *r {
                     Expression::Literal(t) => evaluate_unary(o, t)?,
-                    _ => evaluate_unary(o, evaluate(*r)?)?
+                    _ => evaluate_unary(o, evaluate_expression(*r, vars)?)?
             }
         }),
         Expression::Binary { left: l, operator: o, right: r } => Ok({
            match (*l, *r) {
                 (Expression::Literal(t1), Expression::Literal(t2)) => evaluate_binary(t1, o, t2)?,
-                (e1, e2) => evaluate_binary(evaluate(e1)?, o, evaluate(e2)?)?,
+                (e1, e2) => evaluate_binary(evaluate_expression(e1, vars)?, o, evaluate_expression(e2, vars)?)?,
             }
         }),
+        Expression::Assignment { name: n, value: v } => {
+            if is_declared(&n, vars) {
+                let value: LiteralType = evaluate_expression(*v, vars)?;
+                assign_var(&n, &value, vars);
+                Ok(value)
+            }
+            else {
+                Err(EvaluateError::UndeclaredVariable(n))
+            }
+        },
+        Expression::Variable(n) => {
+            match get_var(&n, vars) {
+                Some(v) => Ok(v),
+                None => Err(EvaluateError::UndeclaredVariable(n))
+            } 
+        } 
     };
+}
+
+fn is_declared(name: &str, vars: &[HashMap<String, LiteralType>]) -> bool {
+    for h in vars.iter() {
+        if let Some(_) = h.get(name) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+fn get_var(name: &str, vars: &[HashMap<String, LiteralType>]) -> Option<LiteralType> {
+    for h in vars.iter() {
+        if let Some(v) = h.get(name) {
+            return Some(v.clone());
+        }
+    }
+
+    return None;
+}
+
+    fn assign_var(name: &str, value: &LiteralType, vars: &mut [HashMap<String, LiteralType>]) -> Result<(), EvaluateError> {
+        for h in vars.iter_mut() {
+        if let Some(_) = h.get(name) {
+            h.insert(name.to_owned(), value.clone());
+            return Ok(());
+        }
+    }
+
+    return Err(EvaluateError::UndeclaredVariable(name.to_owned()));
 }
 
 fn evaluate_unary(operator: UnaryOp, right: LiteralType) -> Result<LiteralType, EvaluateError> {
