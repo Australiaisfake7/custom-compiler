@@ -163,6 +163,9 @@ impl Parser {
         if self.match_advance(&[Token::Let]) {
             return self.declaration();
         }
+        if self.match_advance(&[Token::LeftBrace]) {
+            return self.block();
+        }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
@@ -186,12 +189,22 @@ impl Parser {
             Token::Assign => self.expression()?,
             token => return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: token.clone() })
         };
-
         if !self.match_advance(&[Token::Semicolon]) {
             return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() });
         }
 
         return Ok(Statement::Declaration { name: n, value: v, data_type: t });
+    }
+    fn block(&mut self) -> Result<Statement, ParseError> {
+        let mut stmts: Vec<Statement> = Vec::new();
+
+        loop {
+            match self.peek()? {
+                Token::RightBrace => { self.advance()?; return Ok(Statement::Block(stmts)); },
+                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "Closing Curly Brace", _got: Token::EOF }),
+                _ => stmts.push(self.statement()?),
+            }
+        }
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
