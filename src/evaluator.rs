@@ -39,9 +39,9 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
         },
         Statement::Block(stmts) => {
             vars.push(HashMap::new());
-            evaluate_statements(stmts, vars)?;
+            let result: Result<(), EvaluateError> = evaluate_statements(stmts, vars);
             vars.pop();
-            Ok(())
+            result
         }
     }; 
 }
@@ -54,7 +54,7 @@ fn evaluate_expression(expression: &Expression, vars: &mut Vec<HashMap<String, L
         Expression::Binary { left: l, operator: o, right: r } => evaluate_binary(&evaluate_expression(l, vars)?, o, &evaluate_expression(r, vars)?),
         Expression::Assignment { name: n, value: v } => {
             if is_declared(n, vars) {
-                let value: LiteralType = evaluate_expression(&**v, vars)?;
+                let value: LiteralType = evaluate_expression(v, vars)?;
                 assign_var(n, &value, vars)?;
                 Ok(value)
             }

@@ -97,10 +97,16 @@ impl TryFrom<&Token> for UnaryOp {
     }
 }
 
-pub fn parse_tokens(tokens: Vec<Token>) -> Result<Statement, ParseError> {
+pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, ParseError> {
     let mut parser: Parser = Parser::from_tokens(tokens);
 
-    return Ok(parser.statement()?);
+    let mut statements: Vec<Statement> = Vec::new();
+
+    while !parser.match_advance(&[Token::EOF]) {
+        statements.push(parser.statement()?);
+    }
+
+    Ok(statements)
 }
 
 struct Parser {
