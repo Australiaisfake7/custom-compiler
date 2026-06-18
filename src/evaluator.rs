@@ -30,7 +30,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             else {
                 let value: LiteralType = evaluate_expression(v, vars)?;
 
-                match (value, t) {
+                match (&value, t) {
                     (LiteralType::Int(_), DataType::Int) => (),
                     (LiteralType::Float(_), DataType::Float) => (),
                     (LiteralType::String(_), DataType::String) => (),
