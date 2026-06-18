@@ -59,7 +59,9 @@ pub enum Expression {
 pub enum Statement {
     Expression(Box<Expression>),
     Declaration {name: String, value: Box<Expression>, data_type: DataType},
-    Block(Vec<Statement>)
+    Block(Vec<Statement>),
+    If {condition: Box<Expression>, block: Vec<Statement>},
+    IfElse {condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement>},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -166,10 +168,13 @@ impl Parser {
         if self.match_advance(&[Token::LeftBrace]) {
             return self.block();
         }
+        if self.match_advance(&[Token::If]) {
+            return self.if_else();
+        }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() })
+            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() })
         }
 
         return Ok(Statement::Expression(expr));
@@ -187,10 +192,10 @@ impl Parser {
         let v: Box<Expression> = match self.advance()? {
             Token::Semicolon => return Ok(Statement::Declaration { name: n, value: Box::new(Expression::Literal(LiteralType::Null)), data_type: t }),
             Token::Assign => self.expression()?,
-            token => return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: token.clone() })
+            token => return Err(ParseError::UnexpectedToken { _expected: "';'", _got: token.clone() })
         };
         if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "Semicolon", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() });
         }
 
         return Ok(Statement::Declaration { name: n, value: v, data_type: t });
@@ -201,10 +206,54 @@ impl Parser {
         loop {
             match self.peek()? {
                 Token::RightBrace => { self.advance()?; return Ok(Statement::Block(stmts)); },
-                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "Closing Curly Brace", _got: Token::EOF }),
+                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
                 _ => stmts.push(self.statement()?),
             }
         }
+    }
+    fn if_else(&mut self) -> Result<Statement, ParseError> {
+        if !self.match_advance(&[Token::LeftBracket]) {
+            return Err(ParseError::UnexpectedToken { _expected: "'('", _got: self.peek()?.clone() });
+        }
+
+        let condition: Box<Expression> = self.expression()?;
+
+        if !self.match_advance(&[Token::RightBracket]) {
+            return Err(ParseError::UnexpectedToken { _expected: "')'", _got: self.peek()?.clone() });
+        }
+
+        let mut block1: Vec<Statement> = Vec::new();
+
+        loop {
+            match self.peek()? {
+                Token::RightBrace => { self.advance()?; break; },
+                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
+                _ => block1.push(self.statement()?),
+            }
+        }
+
+        if !self.match_advance(&[Token::Else]) {
+            return Ok(Statement::If { condition: condition, block: block1 });
+        }
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { _expected: "'{'", _got: self.peek()?.clone() });
+        }
+
+        let mut block2: Vec<Statement> = Vec::new();
+
+        loop {
+            match self.peek()? {
+                Token::RightBrace => { self.advance()?; break; },
+                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
+                _ => block2.push(self.statement()?),
+            }
+        }
+
+        if !self.match_advance(&[Token::RightBrace]) {
+            return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: self.peek()?.clone() });
+        }
+
+        return Ok(Statement::IfElse { condition: condition, block1: block1, block2: block2 });
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();

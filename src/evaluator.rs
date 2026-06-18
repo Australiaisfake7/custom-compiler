@@ -9,6 +9,7 @@ pub enum EvaluateError {
     UnexpectedUnaryOperand { operand: LiteralType, operator: UnaryOp},
     VariableShadowing(String),
     UndeclaredVariable(String),
+    UnexpectedCondition(LiteralType),
 }
 
 pub fn evaluate_statements(statements: &Vec<Statement>, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
@@ -42,6 +43,31 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             let result: Result<(), EvaluateError> = evaluate_statements(stmts, vars);
             vars.pop();
             result
+        },
+        Statement::If { condition: c, block: block} => {
+            match evaluate_expression(c, vars)? {
+                LiteralType::Bool(b) => {
+                    if b {
+                        evaluate_statements(block, vars)?;
+                    }
+                    return Ok(());
+                },
+                other => return Err(EvaluateError::UnexpectedCondition(other)),
+            }
+        },
+        Statement::IfElse { condition: c, block1: block1, block2: block2} => {
+            match evaluate_expression(c, vars)? {
+                LiteralType::Bool(b) => {
+                    if b {
+                        evaluate_statements(block1, vars);
+                    }
+                    else {
+                        evaluate_statements(block2, vars);
+                    }
+                    return Ok(());
+                },
+                other => return Err(EvaluateError::UnexpectedCondition(other)),
+            }
         }
     }; 
 }
