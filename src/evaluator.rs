@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::{BinaryOp, Expression, Statement, LiteralType, UnaryOp};
+use crate::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -10,6 +10,7 @@ pub enum EvaluateError {
     VariableShadowing(String),
     UndeclaredVariable(String),
     UnexpectedCondition(LiteralType),
+    UnexpectedVariableValueType { expected: DataType, recieved: LiteralType},
 }
 
 pub fn evaluate_statements(statements: &Vec<Statement>, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
@@ -28,6 +29,16 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             }
             else {
                 let value: LiteralType = evaluate_expression(v, vars)?;
+
+                match (value, t) {
+                    (LiteralType::Int(_), DataType::Int) => (),
+                    (LiteralType::Float(_), DataType::Float) => (),
+                    (LiteralType::String(_), DataType::String) => (),
+                    (LiteralType::Bool(_), DataType::Bool) => (),
+                    (LiteralType::Null, _) => (),
+                    (other_val, other_type) => return Err(EvaluateError::UnexpectedVariableValueType { expected: other_type.clone(), recieved: other_val.clone() })
+                }
+
                 if let Some(h) = vars.last_mut() {
                     h.insert(n.to_owned(), value);
                 }
