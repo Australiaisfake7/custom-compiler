@@ -19,8 +19,8 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
-    LogicalAnd,
-    LogicalOr,
+    LAnd,
+    LOr,
     Assign,
 }
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub enum UnaryOp {
     LNot,
     Negate,
 }
-#[derive(Debug, Clone)]
+    #[derive(Debug, Clone)]
 pub enum LiteralType {
     String(String),
     Int(i64),
@@ -80,8 +80,8 @@ impl TryFrom<&Token> for BinaryOp {
             Token::LessEqual => Ok(BinaryOp::LessEqual),
             Token::Greater => Ok(BinaryOp::Greater),
             Token::GreaterEqual => Ok(BinaryOp::GreaterEqual),
-            Token::LAnd => Ok(BinaryOp::LogicalAnd),
-            Token::LOr => Ok(BinaryOp::LogicalOr),
+            Token::LAnd => Ok(BinaryOp::LAnd),
+            Token::LOr => Ok(BinaryOp::LOr),
             Token::Assign => Ok(BinaryOp::Assign),
             _ => Err(token.clone()),
         }
@@ -261,7 +261,7 @@ impl Parser {
         return self.assignment();
     }
     fn assignment(&mut self) -> Result<Box<Expression>, ParseError> {
-        let expr: Box<Expression> = self.equality()?;
+        let expr: Box<Expression> = self.logical_or()?;
 
         if self.match_advance(&[Token::Assign]) {
             let value: Box<Expression> = self.assignment()?;
@@ -271,6 +271,44 @@ impl Parser {
             }
 
             return Err(ParseError::UnexpectedAssignmentTarget);
+        }
+
+        return Ok(expr);
+    }
+    fn logical_or(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.logical_and()?;
+
+        while self.match_advance(&[Token::LOr]) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
+                Ok(op) => op,
+                Err(token) => {
+                    return Err(ParseError::UnexpectedToken { expected: "Logical Or", got: token });
+                }
+            };
+            let right: Box<Expression> = self.logical_and()?;
+            expr = Box::new(Expression::Binary { 
+                left: expr,
+                operator: op,
+                right: right });
+        }
+
+        return Ok(expr);
+    }
+    fn logical_and(&mut self) -> Result<Box<Expression>, ParseError> {
+        let mut expr: Box<Expression> = self.equality()?;
+
+        while self.match_advance(&[Token::LAnd]) {
+            let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
+                Ok(op) => op,
+                Err(token) => {
+                    return Err(ParseError::UnexpectedToken { expected: "Logical And", got: token });
+                }
+            };
+            let right: Box<Expression> = self.equality()?;
+            expr = Box::new(Expression::Binary { 
+                left: expr,
+                operator: op,
+                right: right });
         }
 
         return Ok(expr);
