@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum ParseError {
-    UnexpectedToken { _expected: &'static str, _got: Token },
+    UnexpectedToken { expected: &'static str, got: Token },
     UnexpectedReadIndex(usize),
     UnexpectedAssignmentTarget,
 }
@@ -178,7 +178,7 @@ impl Parser {
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() })
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() })
         }
 
         return Ok(Statement::Expression(expr));
@@ -186,20 +186,20 @@ impl Parser {
     fn declaration(&mut self) -> Result<Statement, ParseError> {
         let t: DataType = match self.advance()? {
             Token::DataType(d) => d.clone(),
-            token=> return Err(ParseError::UnexpectedToken { _expected: "Data Type", _got: token.clone() })
+            token=> return Err(ParseError::UnexpectedToken { expected: "Data Type", got: token.clone() })
             
         };
         let n: String = match self.advance()? {
             Token::Identifier(i) => i.clone(),
-            token => return Err(ParseError::UnexpectedToken { _expected: "Identifier", _got: token.clone() })
+            token => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: token.clone() })
         };
         let v: Box<Expression> = match self.advance()? {
             Token::Semicolon => return Ok(Statement::Declaration { name: n, value: Box::new(Expression::Literal(LiteralType::Null)), data_type: t }),
             Token::Assign => self.expression()?,
-            token => return Err(ParseError::UnexpectedToken { _expected: "';'", _got: token.clone() })
+            token => return Err(ParseError::UnexpectedToken { expected: "';'", got: token.clone() })
         };
         if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
         }
 
         return Ok(Statement::Declaration { name: n, value: v, data_type: t });
@@ -210,23 +210,23 @@ impl Parser {
         loop {
             match self.peek()? {
                 Token::RightBrace => { self.advance()?; return Ok(Statement::Block(stmts)); },
-                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
+                Token::EOF => return Err(ParseError::UnexpectedToken { expected: "'}'", got: Token::EOF }),
                 _ => stmts.push(self.statement()?),
             }
         }
     }
     fn if_else(&mut self) -> Result<Statement, ParseError> {
         if !self.match_advance(&[Token::LeftBracket]) {
-            return Err(ParseError::UnexpectedToken { _expected: "'('", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "'('", got: self.peek()?.clone() });
         }
 
         let condition: Box<Expression> = self.expression()?;
 
         if !self.match_advance(&[Token::RightBracket]) {
-            return Err(ParseError::UnexpectedToken { _expected: "')'", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "')'", got: self.peek()?.clone() });
         }
         if !self.match_advance(&[Token::LeftBrace]) {
-            return Err(ParseError::UnexpectedToken { _expected: "'{'", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
         }
 
         let block1: Vec<Statement> = match self.block()? {
@@ -238,7 +238,7 @@ impl Parser {
             return Ok(Statement::If { condition: condition, block: block1 });
         }
         if !self.match_advance(&[Token::LeftBrace]) {
-            return Err(ParseError::UnexpectedToken { _expected: "'{'", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
         }
 
         let block2: Vec<Statement> = match self.block()? {
@@ -252,7 +252,7 @@ impl Parser {
         let expr: Box<Expression> = self.expression()?;
 
         if !self.match_advance(&[Token::Semicolon]) {
-            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() });
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
         }
 
         return Ok(Statement::Print(expr));
@@ -282,7 +282,7 @@ impl Parser {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { _expected: "Equality", _got: token });
+                    return Err(ParseError::UnexpectedToken { expected: "Equality", got: token });
                 }
             };
             let right: Box<Expression> = self.inequality()?;
@@ -302,7 +302,7 @@ impl Parser {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { _expected: "Inequality", _got: token });
+                    return Err(ParseError::UnexpectedToken { expected: "Inequality", got: token });
                 }
             };
             let right: Box<Expression> = self.term()?;
@@ -322,7 +322,7 @@ impl Parser {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { _expected: "Term", _got: token });
+                    return Err(ParseError::UnexpectedToken { expected: "Term", got: token });
                 }
             };
             let right: Box<Expression> = self.factor()?;
@@ -342,7 +342,7 @@ impl Parser {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { _expected: "Factor", _got: token });
+                    return Err(ParseError::UnexpectedToken { expected: "Factor", got: token });
                 }
             };
             let right: Box<Expression> = self.unary()?;
@@ -360,7 +360,7 @@ impl Parser {
             let op: UnaryOp = match UnaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {
-                    return Err(ParseError::UnexpectedToken { _expected: "Unary", _got: token });
+                    return Err(ParseError::UnexpectedToken { expected: "Unary", got: token });
                 }
             };
             let right: Box<Expression> = self.unary()?;
@@ -385,11 +385,11 @@ impl Parser {
                 let expr: Box<Expression> = self.expression()?;
                 match self.advance() {
                     Ok(t) if t == &Token::RightBracket => return Ok(expr),
-                    Ok(t) => return Err(ParseError::UnexpectedToken { _expected: ")", _got: t.clone() }),
+                    Ok(t) => return Err(ParseError::UnexpectedToken { expected: ")", got: t.clone() }),
                     Err(e) => Err(e),
                 }
             },
-            other => Err(ParseError::UnexpectedToken { _expected: "Primary", _got: other.clone() })
+            other => Err(ParseError::UnexpectedToken { expected: "Primary", got: other.clone() })
         };
     }
 }

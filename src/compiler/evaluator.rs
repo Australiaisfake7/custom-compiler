@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
+use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
 #[allow(dead_code)]
