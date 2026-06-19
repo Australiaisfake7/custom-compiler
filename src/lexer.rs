@@ -10,7 +10,7 @@ pub enum Token {
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot,
 
-    Let, DataType(DataType), 
+    Let, Print, DataType(DataType), 
 
     If, Else, For, Class, Null,
 
@@ -194,6 +194,7 @@ impl<'a> Scanner<'a> {
                     "float" => Token::DataType(DataType::Float),
                     "string" => Token::DataType(DataType::String),
                     "bool" => Token::DataType(DataType::Bool),
+                    "print" => Token::Print,
                     _ => Token::Identifier(s),
                 })
             },

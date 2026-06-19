@@ -55,7 +55,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             vars.pop();
             result
         },
-        Statement::If { condition: c, block: block} => {
+        Statement::If { condition: c, block} => {
             match evaluate_expression(c, vars)? {
                 LiteralType::Bool(b) => {
                     if b {
@@ -66,20 +66,21 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
                 other => return Err(EvaluateError::UnexpectedCondition(other)),
             }
         },
-        Statement::IfElse { condition: c, block1: block1, block2: block2} => {
+        Statement::IfElse { condition: c, block1, block2} => {
             match evaluate_expression(c, vars)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block1, vars);
+                        evaluate_statements(block1, vars)?;
                     }
                     else {
-                        evaluate_statements(block2, vars);
+                        evaluate_statements(block2, vars)?;
                     }
                     return Ok(());
                 },
                 other => return Err(EvaluateError::UnexpectedCondition(other)),
             }
-        }
+        },
+        Statement::Print(s) => { println!("{:?}", evaluate_expression(s, vars)?); Ok(()) },
     }; 
 }
 

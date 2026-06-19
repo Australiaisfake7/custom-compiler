@@ -62,6 +62,7 @@ pub enum Statement {
     Block(Vec<Statement>),
     If {condition: Box<Expression>, block: Vec<Statement>},
     IfElse {condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement>},
+    Print(Box<Expression>),
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -171,6 +172,9 @@ impl Parser {
         if self.match_advance(&[Token::If]) {
             return self.if_else();
         }
+        if self.match_advance(&[Token::Print]) {
+            return self.print();
+        }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
@@ -221,16 +225,14 @@ impl Parser {
         if !self.match_advance(&[Token::RightBracket]) {
             return Err(ParseError::UnexpectedToken { _expected: "')'", _got: self.peek()?.clone() });
         }
-
-        let mut block1: Vec<Statement> = Vec::new();
-
-        loop {
-            match self.peek()? {
-                Token::RightBrace => { self.advance()?; break; },
-                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
-                _ => block1.push(self.statement()?),
-            }
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { _expected: "'{'", _got: self.peek()?.clone() });
         }
+
+        let block1: Vec<Statement> = match self.block()? {
+            Statement::Block(b) => b,
+            _ => unreachable!(),
+        };
 
         if !self.match_advance(&[Token::Else]) {
             return Ok(Statement::If { condition: condition, block: block1 });
@@ -239,21 +241,21 @@ impl Parser {
             return Err(ParseError::UnexpectedToken { _expected: "'{'", _got: self.peek()?.clone() });
         }
 
-        let mut block2: Vec<Statement> = Vec::new();
-
-        loop {
-            match self.peek()? {
-                Token::RightBrace => { self.advance()?; break; },
-                Token::EOF => return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: Token::EOF }),
-                _ => block2.push(self.statement()?),
-            }
-        }
-
-        if !self.match_advance(&[Token::RightBrace]) {
-            return Err(ParseError::UnexpectedToken { _expected: "'}'", _got: self.peek()?.clone() });
-        }
+        let block2: Vec<Statement> = match self.block()? {
+            Statement::Block(b) => b,
+            _ => unreachable!(),
+        };
 
         return Ok(Statement::IfElse { condition: condition, block1: block1, block2: block2 });
+    }
+    fn print(&mut self) -> Result<Statement, ParseError> {
+        let expr: Box<Expression> = self.expression()?;
+
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { _expected: "';'", _got: self.peek()?.clone() });
+        }
+
+        return Ok(Statement::Print(expr));
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
