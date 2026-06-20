@@ -280,10 +280,6 @@ impl Parser {
             _ => unreachable!(),
         };
 
-        if !self.match_advance(&[Token::RightBrace]) {
-            return Err(ParseError::UnexpectedToken { expected: "'}'", got: self.peek()?.clone() });
-        }
-
         Ok(Statement::While { condition, block })
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {

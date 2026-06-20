@@ -3,5 +3,5 @@ mod compiler;
 use compiler::compile;
 
 fn main() {
-    compile("print 5 > 6 && true;");
+    compile("let int x = 0; while (x < 10) {print x; x = x + 1; }");
 }
