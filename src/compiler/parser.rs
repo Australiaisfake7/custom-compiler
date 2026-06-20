@@ -63,6 +63,7 @@ pub enum Statement {
     If {condition: Box<Expression>, block: Vec<Statement>},
     IfElse {condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement>},
     Print(Box<Expression>),
+    While {condition: Box<Expression>, block: Vec<Statement>},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -175,6 +176,9 @@ impl Parser {
         if self.match_advance(&[Token::Print]) {
             return self.print();
         }
+        if self.match_advance(&[Token::While]) {
+            return self.while_loop();
+        }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
@@ -256,6 +260,31 @@ impl Parser {
         }
 
         return Ok(Statement::Print(expr));
+    }
+    fn while_loop(&mut self) -> Result<Statement, ParseError> {
+        if !self.match_advance(&[Token::LeftBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "'('", got: self.peek()?.clone() });
+        }
+
+        let condition: Box<Expression> = self.expression()?;
+
+        if !self.match_advance(&[Token::RightBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "')'", got: self.peek()?.clone() });
+        }
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
+        }
+
+        let block: Vec<Statement> = match self.block()? {
+            Statement::Block(b) => b,
+            _ => unreachable!(),
+        };
+
+        if !self.match_advance(&[Token::RightBrace]) {
+            return Err(ParseError::UnexpectedToken { expected: "'}'", got: self.peek()?.clone() });
+        }
+
+        Ok(Statement::While { condition, block })
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();

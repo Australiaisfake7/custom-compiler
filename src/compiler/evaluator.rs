@@ -81,6 +81,23 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             }
         },
         Statement::Print(s) => { println!("{:?}", evaluate_expression(s, vars)?); Ok(()) },
+        Statement::While { condition: c, block } => {
+            loop {
+                match evaluate_expression(c, vars)? {
+                    LiteralType::Bool(b) => {
+                        if b {
+                            evaluate_statements(block, vars)?;
+                        }
+                        else {
+                            break;
+                        }
+                    },
+                    other => return Err(EvaluateError::UnexpectedCondition(other)),
+                };
+            }
+
+            Ok(())
+        },
     }; 
 }
 

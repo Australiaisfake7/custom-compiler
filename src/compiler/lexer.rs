@@ -12,7 +12,7 @@ pub enum Token {
 
     Let, Print, DataType(DataType), 
 
-    If, Else, For, Class, Null,
+    If, Else, For, While, Class, Null,
 
     EOF,
 }
@@ -185,6 +185,7 @@ impl<'a> Scanner<'a> {
                     "if" => Token::If,
                     "else" => Token::Else,
                     "for" => Token::For,
+                    "while" => Token::While,
                     "class" => Token::Class,
                     "true" => Token::Bool(true),
                     "false" => Token::Bool(false),
