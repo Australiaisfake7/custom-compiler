@@ -64,6 +64,7 @@ pub enum Statement {
     IfElse {condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement>},
     Print(Box<Expression>),
     While {condition: Box<Expression>, block: Vec<Statement>},
+    For {initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement>},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -179,6 +180,9 @@ impl Parser {
         if self.match_advance(&[Token::While]) {
             return self.while_loop();
         }
+        if self.match_advance(&[Token::For]) {
+            return self.for_loop();
+        }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
@@ -281,6 +285,34 @@ impl Parser {
         };
 
         Ok(Statement::While { condition, block })
+    }
+    fn for_loop(&mut self) -> Result<Statement, ParseError> {
+        if !self.match_advance(&[Token::LeftBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "'('", got: self.peek()?.clone() });
+        }
+
+        let initializer: Statement = self.statement()?;
+        let condition: Box<Expression> = self.expression()?;
+
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+        }
+
+        let update: Statement = self.statement()?;
+ 
+        if !self.match_advance(&[Token::RightBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "')'", got: self.peek()?.clone() });
+        }
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
+        }
+
+        let block: Vec<Statement> = match self.block()? {
+            Statement::Block(b) => b,
+            _ => unreachable!(),
+        };
+
+        Ok(Statement::For { initializer: Box::new(initializer), condition, update: Box::new(update), block })
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();

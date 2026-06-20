@@ -98,6 +98,26 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
 
             Ok(())
         },
+        Statement::For {initializer: i, condition: c, update: u, block} => {
+            evaluate_statement(i, vars)?;
+
+            loop {
+                let bool_condition: bool = match evaluate_expression(c, vars)? {
+                    LiteralType::Bool(b) => b,
+                    other => return Err(EvaluateError::UnexpectedCondition(other)),
+                };
+
+                if bool_condition {
+                    evaluate_statements(block, vars)?;
+                    evaluate_statement(u, vars)?;
+                }
+                else {
+                    break;
+                }
+            }
+
+            Ok(())
+        }
     }; 
 }
 
