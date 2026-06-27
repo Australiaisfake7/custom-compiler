@@ -28,7 +28,7 @@ pub enum UnaryOp {
     LNot,
     Negate,
 }
-    #[derive(Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum LiteralType {
     String(String),
     Int(i64),
@@ -36,8 +36,13 @@ pub enum LiteralType {
     Bool(bool),
     Null,
 }
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct FunctionData {
+    data_type: Option<DataType>,
+    parameters: Vec<(DataType, String)>,
+    block: Vec<Statement>,
+}
+#[derive(Debug, Clone)]
 pub enum Expression {
     Binary {
         left: Box<Expression>,
@@ -55,7 +60,7 @@ pub enum Expression {
         value: Box<Expression>,
     },
 }
-
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(Box<Expression>),
     Declaration {name: String, value: Box<Expression>, data_type: DataType},
@@ -65,6 +70,7 @@ pub enum Statement {
     Print(Box<Expression>),
     While {condition: Box<Expression>, block: Vec<Statement>},
     For {initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement>},
+    Function {name: String, data: FunctionData},
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -182,6 +188,9 @@ impl Parser {
         }
         if self.match_advance(&[Token::For]) {
             return self.for_loop();
+        }
+        if self.match_advance(&[Token::Fun]) {
+            return self.function();
         }
 
         let expr: Box<Expression> = self.expression()?;
@@ -313,6 +322,63 @@ impl Parser {
         };
 
         Ok(Statement::For { initializer: Box::new(initializer), condition, update: Box::new(update), block })
+    }
+    fn function(&mut self) -> Result<Statement, ParseError> {
+        let data_type: Option<DataType> = match self.peek()?.clone() {
+            Token::DataType(d) => { self.advance()?; Some(d) },
+            Token::Identifier(_) => None,
+            other => return Err(ParseError::UnexpectedToken { expected: "Function Name", got: other.clone() })
+        };
+
+        let name: String = match self.advance()? {
+            Token::Identifier(i) => i.clone(),
+            other => return Err(ParseError::UnexpectedToken { expected: "Function Name", got: other.clone() }),
+        };
+
+        if !self.match_advance(&[Token::LeftBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "'('", got: self.peek()?.clone() });
+        }
+
+        let mut parameters: Vec<(DataType, String)> = Vec::new();
+
+        loop {
+            match self.peek()? {
+                Token::DataType(_) => parameters.push(self.parameter()?),
+                Token::RightBracket => break,
+                other => return Err(ParseError::UnexpectedToken { expected: "Parameter", got: other.clone() }),
+            }
+        }
+
+        if !self.match_advance(&[Token::RightBracket]) {
+            return Err(ParseError::UnexpectedToken { expected: "')'", got: self.peek()?.clone() });
+        }
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
+        }
+
+        let block: Vec<Statement> = match self.block()? {
+            Statement::Block(b) => b,
+            _ => unreachable!(),
+        };
+
+        Ok(Statement::Function { name, data: FunctionData { data_type, parameters, block}})
+    }
+    fn parameter(&mut self) -> Result<(DataType, String), ParseError> {
+        let d: DataType = match self.advance()? {
+            Token::DataType(d) => d.clone(),
+            other => return Err(ParseError::UnexpectedToken { expected: "Data type", got: other.clone() }),
+        };
+
+        let s: String = match self.advance()? {
+            Token::Identifier(i) => i.clone(),
+            other => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: other.clone() }),
+        };
+
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() })
+        }
+
+        Ok((d, s))
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();

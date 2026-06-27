@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::compiler::parser::FunctionData;
+
 use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
@@ -7,25 +9,25 @@ use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Stateme
 pub enum EvaluateError {
     UnexpectedBinaryOperands { operands: (LiteralType, LiteralType), operator: BinaryOp},
     UnexpectedUnaryOperand { operand: LiteralType, operator: UnaryOp},
-    VariableShadowing(String),
+    IdentifierShadowing(String),
     UndeclaredVariable(String),
     UnexpectedCondition(LiteralType),
     UnexpectedVariableValueType { expected: DataType, recieved: LiteralType},
 }
 
-pub fn evaluate_statements(statements: &Vec<Statement>, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
+pub fn evaluate_statements(statements: &Vec<Statement>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut Vec<HashMap<String, FunctionData>>) -> Result<(), EvaluateError> {
     for statement in statements.iter() {
-        evaluate_statement(statement, vars)?;
+        evaluate_statement(statement, vars, funcs)?;
     }
 
     Ok(())
 }
 
-fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, LiteralType>>) -> Result<(), EvaluateError> {
+fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut Vec<HashMap<String, FunctionData>>) -> Result<(), EvaluateError> {
     return match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
             if is_declared(n, vars) {
-                Err(EvaluateError::VariableShadowing(n.to_owned()))
+                Err(EvaluateError::IdentifierShadowing(n.to_owned()))
             }
             else {
                 let value: LiteralType = evaluate_expression(v, vars)?;
@@ -51,7 +53,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
         },
         Statement::Block(stmts) => {
             vars.push(HashMap::new());
-            let result: Result<(), EvaluateError> = evaluate_statements(stmts, vars);
+            let result: Result<(), EvaluateError> = evaluate_statements(stmts, vars, funcs);
             vars.pop();
             result
         },
@@ -59,7 +61,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             match evaluate_expression(c, vars)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block, vars)?;
+                        evaluate_statements(block, vars, funcs)?;
                     }
                     return Ok(());
                 },
@@ -70,10 +72,10 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             match evaluate_expression(c, vars)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block1, vars)?;
+                        evaluate_statements(block1, vars, funcs)?;
                     }
                     else {
-                        evaluate_statements(block2, vars)?;
+                        evaluate_statements(block2, vars, funcs)?;
                     }
                     return Ok(());
                 },
@@ -86,7 +88,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
                 match evaluate_expression(c, vars)? {
                     LiteralType::Bool(b) => {
                         if b {
-                            evaluate_statements(block, vars)?;
+                            evaluate_statements(block, vars, funcs)?;
                         }
                         else {
                             break;
@@ -99,7 +101,7 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
             Ok(())
         },
         Statement::For {initializer: i, condition: c, update: u, block} => {
-            evaluate_statement(i, vars)?;
+            evaluate_statement(i, vars, funcs)?;
 
             loop {
                 let bool_condition: bool = match evaluate_expression(c, vars)? {
@@ -108,14 +110,20 @@ fn evaluate_statement(statement: &Statement, vars: &mut Vec<HashMap<String, Lite
                 };
 
                 if bool_condition {
-                    evaluate_statements(block, vars)?;
-                    evaluate_statement(u, vars)?;
+                    evaluate_statements(block, vars, funcs)?;
+                    evaluate_statement(u, vars, funcs)?;
                 }
                 else {
                     break;
                 }
             }
 
+            Ok(())
+        },
+        Statement::Function { name, data } => {
+            if let Some(h) = funcs.last_mut() {
+                    h.insert(name.to_owned(), data.clone());
+            }
             Ok(())
         }
     }; 
