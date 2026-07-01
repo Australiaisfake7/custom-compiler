@@ -28,7 +28,7 @@ pub enum UnaryOp {
     LNot,
     Negate,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiteralType {
     String(String),
     Int(i64),
@@ -38,9 +38,9 @@ pub enum LiteralType {
 }
 #[derive(Debug, Clone)]
 pub struct FunctionData {
-    data_type: Option<DataType>,
-    parameters: Vec<(DataType, String)>,
-    block: Vec<Statement>,
+    pub data_type: Option<DataType>,
+    pub parameters: Vec<(DataType, String)>,
+    pub block: Vec<Statement>,
 }
 #[derive(Debug, Clone)]
 pub enum Expression {
@@ -59,6 +59,10 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
     },
+    Call {
+        callee: Box<Expression>,
+        parameters: Vec<Expression>,
+    }
 }
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -104,6 +108,20 @@ impl TryFrom<&Token> for UnaryOp {
             Token::LNot => Ok(UnaryOp::LNot),
             Token::Minus => Ok(UnaryOp::Negate),
             _ => Err(token.clone()),
+        }
+    }
+}
+
+impl TryFrom<&LiteralType> for DataType {
+    type Error = LiteralType;
+
+    fn try_from(literal_type: &LiteralType) -> Result<Self, Self::Error> {
+        match literal_type {
+            LiteralType::Bool(_) => Ok(DataType::Bool),
+            LiteralType::Float(_) => Ok(DataType::Float),
+            LiteralType::Int(_) => Ok(DataType::Int),
+            LiteralType::String(_) => Ok(DataType::String),
+            LiteralType::Null => Err(LiteralType::Null),
         }
     }
 }
@@ -532,7 +550,29 @@ impl Parser {
             return Ok(expr);
         }
 
-        return Ok(self.primary()?);
+        return Ok(self.call()?);
+    }
+    fn call(&mut self) -> Result<Box<Expression>, ParseError> {
+        let expr: Box<Expression> = self.primary()?;
+
+        if self.match_advance(&[Token::LeftBracket]) {
+            let mut parameters: Vec<Expression> = Vec::new();
+
+            loop {
+                if self.match_advance(&[Token::RightBracket]) {
+                    break;
+                }
+
+                parameters.push(*self.expression()?);
+                if !self.match_advance(&[Token::Semicolon]) {
+                    return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+                }
+            }
+
+            return Ok(Box::new(Expression::Call { callee: expr, parameters }));
+        }
+
+        Ok(expr)
     }
     fn primary(&mut self) -> Result<Box<Expression>, ParseError> {
         return match self.advance()? {
