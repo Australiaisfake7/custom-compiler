@@ -3,5 +3,9 @@ mod compiler;
 use compiler::compile;
 
 fn main() {
-    compile("for(let int i = 0; i < 10; i = i + 1;) {print i;}");
+    compile("fun int printNum(int num;) {
+        return num;
+    }
+    
+    print printNum(2;);");
 }

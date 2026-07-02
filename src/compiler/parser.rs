@@ -75,6 +75,7 @@ pub enum Statement {
     While {condition: Box<Expression>, block: Vec<Statement>},
     For {initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement>},
     Function {name: String, data: FunctionData},
+    Return(Option<Box<Expression>>),
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -209,6 +210,9 @@ impl Parser {
         }
         if self.match_advance(&[Token::Fun]) {
             return self.function();
+        }
+        if self.match_advance(&[Token::Return]) {
+            return self.return_statement();
         }
 
         let expr: Box<Expression> = self.expression()?;
@@ -397,6 +401,27 @@ impl Parser {
         }
 
         Ok((d, s))
+    }
+    fn return_statement(&mut self) -> Result<Statement, ParseError> {
+        let expr: Box<Expression> = self.expression()?;
+
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+        }
+        Ok(Statement::Return(Some(expr)))
+    }
+    fn optional_expression(&mut self) -> Result<Option<Box<Expression>>, ParseError> {
+        match self.peek()? {
+            Token::Int(_) |
+            Token::Float(_) |
+            Token::String(_) |
+            Token::Null |
+            Token::Bool(_) |
+            Token::LNot |
+            Token::Minus |
+            Token::LeftBracket => Ok(Some(self.expression()?)),
+            _ => Ok(None),
+        }
     }
     fn expression(&mut self) -> Result<Box<Expression>, ParseError> {
         return self.assignment();
