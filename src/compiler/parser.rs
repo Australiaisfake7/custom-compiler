@@ -403,12 +403,12 @@ impl Parser {
         Ok((d, s))
     }
     fn return_statement(&mut self) -> Result<Statement, ParseError> {
-        let expr: Box<Expression> = self.expression()?;
+        let expr: Option<Box<Expression>> = self.optional_expression()?;
 
         if !self.match_advance(&[Token::Semicolon]) {
             return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
         }
-        Ok(Statement::Return(Some(expr)))
+        Ok(Statement::Return(expr))
     }
     fn optional_expression(&mut self) -> Result<Option<Box<Expression>>, ParseError> {
         match self.peek()? {

@@ -3,7 +3,8 @@ mod compiler;
 use compiler::compile;
 
 fn main() {
-    compile("fun int printNum(int num;) {
+    compile("
+    fun int printNum(int num;) {
         return num;
     }
     
