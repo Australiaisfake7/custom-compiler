@@ -419,6 +419,7 @@ impl Parser {
             Token::Bool(_) |
             Token::LNot |
             Token::Minus |
+            Token::Identifier(_) |
             Token::LeftBracket => Ok(Some(self.expression()?)),
             _ => Ok(None),
         }

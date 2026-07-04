@@ -201,9 +201,21 @@ impl<'a> Scanner<'a> {
                     _ => Token::Identifier(s),
                 })
             },
-            Some(c) if c == ' ' || c == '\t' || c == '\n' || c == '\r' => self.read_next_token(),
+            Some(' ') | Some('\t') | Some('\n') | Some('\r') => {
+                loop {
+                    match self.peek() {
+                        Some(' ') |
+                        Some('\t') |
+                        Some('\n') |
+                        Some('\r') => { self.advance(); },
+                        _ => break,
+                    }
+                }
+
+                self.read_next_token()
+            }
             Some(invalid) => Err(LexError { 
-                _message: format!("Invalid _character {} found.", invalid),
+                _message: format!("Invalid _character {} found", invalid),
                 _line: self._line,
                 _character: self._character 
             }),
