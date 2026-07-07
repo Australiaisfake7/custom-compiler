@@ -3,7 +3,7 @@ use lexer::Token;
 use evaluator::ControlFlow;
 use std::collections::HashMap;
 
-use crate::compiler::parser::FunctionData;
+use crate::compiler::{evaluator::ClassData, parser::FunctionData};
 
 mod lexer;
 mod parser;
@@ -15,7 +15,8 @@ pub fn compile(source: &'static str) {
     let mut global_vars: HashMap<String, LiteralType> = HashMap::new();
     let mut vars: Vec<HashMap<String, LiteralType>> = vec![HashMap::new()];
     let mut funcs: HashMap<String, FunctionData> = HashMap::new();
-    match evaluator::evaluate_statements(&statements, &mut global_vars, &mut vars, &mut funcs).unwrap() {
+    let mut classes: HashMap<String, ClassData> = HashMap::new();
+    match evaluator::evaluate_statements(&statements, &mut global_vars, &mut vars, &mut funcs, &mut classes).unwrap() {
         ControlFlow::None => (),
         ControlFlow::Return(_) => panic!("Unexpected return statement in global scope"),
     }

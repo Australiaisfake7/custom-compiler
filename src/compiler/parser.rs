@@ -1,11 +1,13 @@
 use super::lexer::{Token, DataType};
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]
 pub enum ParseError {
     UnexpectedToken { expected: &'static str, got: Token },
     UnexpectedReadIndex(usize),
     UnexpectedAssignmentTarget,
+    IdentifierShadowing(String),
+    UnexpectedVariableValueType { expected: DataType, recieved: DataType },
 }
 #[derive(Debug, Clone)]
 pub enum BinaryOp {
@@ -69,13 +71,14 @@ pub enum Statement {
     Expression(Box<Expression>),
     Declaration {name: String, value: Box<Expression>, data_type: DataType},
     Block(Vec<Statement>),
-    If {condition: Box<Expression>, block: Vec<Statement>},
-    IfElse {condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement>},
+    If { condition: Box<Expression>, block: Vec<Statement> },
+    IfElse { condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement> },
     Print(Box<Expression>),
-    While {condition: Box<Expression>, block: Vec<Statement>},
-    For {initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement>},
-    Function {name: String, data: FunctionData},
+    While { condition: Box<Expression>, block: Vec<Statement> },
+    For { initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement> },
+    Function { name: String, data: FunctionData },
     Return(Option<Box<Expression>>),
+    Class { name: String, block: Vec<Statement> },
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -213,6 +216,9 @@ impl Parser {
         }
         if self.match_advance(&[Token::Return]) {
             return self.return_statement();
+        }
+        if self.match_advance(&[Token::Class]) {
+            return self.class();
         }
 
         let expr: Box<Expression> = self.expression()?;
@@ -409,6 +415,20 @@ impl Parser {
             return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
         }
         Ok(Statement::Return(expr))
+    }
+    fn class(&mut self) -> Result<Statement, ParseError> {
+        let name: String = match self.advance()? {
+            Token::Identifier(i) => i.clone(),
+            other => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: other.clone() }),
+        };
+        if !self.match_advance(&[Token::LeftBrace]) {
+            return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
+        }
+
+        match self.block()? {
+            Statement::Block(b) => Ok(Statement::Class { name, block: b }),
+            _ => unreachable!(),
+        }
     }
     fn optional_expression(&mut self) -> Result<Option<Box<Expression>>, ParseError> {
         match self.peek()? {

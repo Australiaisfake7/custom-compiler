@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use std::{collections::HashMap, mem};
 use crate::compiler::parser::FunctionData;
 
 use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
@@ -16,6 +15,7 @@ pub enum EvaluateError {
     UnexpectedFunctionCallee(Expression),
     UnexpectedParameterCount { callee: Expression, expected: usize, got: usize },
     UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
+    UnexpectedStatementInClass { class: String, statement: Statement },
 }
 
 pub enum ControlFlow {
@@ -23,9 +23,14 @@ pub enum ControlFlow {
     Return(Option<LiteralType>),
 }
 
-pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>) -> Result<ControlFlow, EvaluateError> {
+pub struct ClassData {
+    vars: HashMap<String, LiteralType>,
+    funcs: HashMap<String, FunctionData>,
+}
+
+pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     for statement in statements.iter() {
-        if let ControlFlow::Return(expr) = evaluate_statement(statement, global_vars, vars, funcs)? {
+        if let ControlFlow::Return(expr) = evaluate_statement(statement, global_vars, vars, funcs, classes)? {
             return Ok(ControlFlow::Return(expr));
         }
     }
@@ -33,14 +38,14 @@ pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMa
     Ok(ControlFlow::None)
 }
 
-fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>) -> Result<ControlFlow, EvaluateError> {
+fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     return match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
             if is_declared(n, vars) {
                 Err(EvaluateError::IdentifierShadowing(n.to_owned()))
             }
             else {
-                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs)?;
+                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
                 match (&value, t) {
                     (LiteralType::Int(_), DataType::Int) => (),
@@ -58,20 +63,20 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             }
         },
         Statement::Expression(expr) => {
-            let _ = evaluate_expression(expr, global_vars, vars, funcs)?;
+            let _ = evaluate_expression(expr, global_vars, vars, funcs, classes)?;
             Ok(ControlFlow::None)
         },
         Statement::Block(stmts) => {
             vars.push(HashMap::new());
-            let result: Result<ControlFlow, EvaluateError> = evaluate_statements(stmts, global_vars, vars, funcs);
+            let result: Result<ControlFlow, EvaluateError> = evaluate_statements(stmts, global_vars, vars, funcs, classes);
             vars.pop();
             result.map(|c| ControlFlow::None)
         },
         Statement::If { condition: c, block} => {
-            match evaluate_expression(c, global_vars, vars, funcs)? {
+            match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block, global_vars, vars, funcs)?;
+                        evaluate_statements(block, global_vars, vars, funcs, classes)?;
                     }
                     return Ok(ControlFlow::None);
                 },
@@ -79,26 +84,26 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             }
         },
         Statement::IfElse { condition: c, block1, block2} => {
-            match evaluate_expression(c, global_vars, vars, funcs)? {
+            match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block1, global_vars, vars, funcs)?;
+                        evaluate_statements(block1, global_vars, vars, funcs, classes)?;
                     }
                     else {
-                        evaluate_statements(block2, global_vars, vars, funcs)?;
+                        evaluate_statements(block2, global_vars, vars, funcs, classes)?;
                     }
                     return Ok(ControlFlow::None);
                 },
                 other => return Err(EvaluateError::UnexpectedCondition(other)),
             }
         },
-        Statement::Print(s) => { println!("{:?}", evaluate_expression(s, global_vars, vars, funcs)?); Ok(ControlFlow::None) },
+        Statement::Print(s) => { println!("{:?}", evaluate_expression(s, global_vars, vars, funcs, classes)?); Ok(ControlFlow::None) },
         Statement::While { condition: c, block } => {
             loop {
-                match evaluate_expression(c, global_vars, vars, funcs)? {
+                match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                     LiteralType::Bool(b) => {
                         if b {
-                            evaluate_statements(block, global_vars, vars, funcs)?;
+                            evaluate_statements(block, global_vars, vars, funcs, classes)?;
                         }
                         else {
                             break;
@@ -111,17 +116,17 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             Ok(ControlFlow::None)
         },
         Statement::For {initializer: i, condition: c, update: u, block} => {
-            evaluate_statement(i, global_vars, vars, funcs)?;
+            evaluate_statement(i, global_vars, vars, funcs, classes)?;
 
             loop {
-                let bool_condition: bool = match evaluate_expression(c, global_vars, vars, funcs)? {
+                let bool_condition: bool = match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                     LiteralType::Bool(b) => b,
                     other => return Err(EvaluateError::UnexpectedCondition(other)),
                 };
 
                 if bool_condition {
-                    evaluate_statements(block, global_vars, vars, funcs)?;
-                    evaluate_statement(u, global_vars, vars, funcs)?;
+                    evaluate_statements(block, global_vars, vars, funcs, classes)?;
+                    evaluate_statement(u, global_vars, vars, funcs, classes)?;
                 }
                 else {
                     break;
@@ -139,20 +144,54 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             Ok(ControlFlow::None)
         },
         Statement::Return(expr) => {
-            Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs)).transpose()?))
+            Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs, classes)).transpose()?))
+        },
+        Statement::Class { name, block } => {
+            let mut class_vars: HashMap<String, LiteralType> = HashMap::new();
+            let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
+            
+            for statement in block {
+                match statement {
+                    Statement::Declaration { name: n, value, data_type } => {
+                        if class_vars.contains_key(n) {
+                            return Err(EvaluateError::IdentifierShadowing(n.clone()));
+                        }
+
+                        let v: LiteralType = evaluate_expression(value, global_vars, vars, funcs, classes)?;
+
+                        if DataType::try_from(&v).map(|t| mem::discriminant(&t) != mem::discriminant(data_type)).unwrap_or(false) {
+                            return Err(EvaluateError::UnexpectedVariableValueType { expected: data_type.clone(), recieved: v })
+                        }
+
+                        class_vars.insert(n.clone(), v);
+                    },
+                    Statement::Function { name: n, data } => {
+                        if class_funcs.contains_key(n) {
+                            return Err(EvaluateError::IdentifierShadowing(n.clone()))
+                        }
+
+                        class_funcs.insert(n.clone(), data.clone());
+                    },
+                    other => return Err(EvaluateError::UnexpectedStatementInClass { class: name.clone(), statement: other.clone() }),
+                }
+            }
+
+            classes.insert(name.clone(), ClassData { vars: class_vars, funcs: class_funcs });
+
+            Ok(ControlFlow::None)
         }
     };
 }
 
-fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData> ) -> Result<LiteralType, EvaluateError> {
+fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<LiteralType, EvaluateError> {
     match expression {
         Expression::Literal(t) => Ok(t.clone()),
-        Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs)?),
+        Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
         
-        Expression::Binary { left: l, operator: o, right: r } => evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs)?, o, &evaluate_expression(r, global_vars, vars, funcs)?),
+        Expression::Binary { left: l, operator: o, right: r } => evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs, classes)?, o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
         Expression::Assignment { name: n, value: v } => {
             if is_declared(n, vars) {
-                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs)?;
+                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
                 assign_var(n, &value, vars)?;
                 Ok(value)
             }
@@ -181,7 +220,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     }
                     for (i, (d, s)) in func_data.parameters.iter().enumerate() {
                         let p: LiteralType = match parameters.get(i) {
-                            Some(v) => evaluate_expression(v, global_vars, vars, funcs)?,
+                            Some(v) => evaluate_expression(v, global_vars, vars, funcs, classes)?,
                             None => unreachable!(),
                         };
                         if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
@@ -191,7 +230,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         func_vars.first_mut().unwrap().insert(s.clone(), p);
                     }
 
-                    match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs)? {
+                    match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
                         ControlFlow::None => Ok(LiteralType::Null),
                         ControlFlow::Return(expr) => Ok(expr.unwrap_or(LiteralType::Null))
                     }
