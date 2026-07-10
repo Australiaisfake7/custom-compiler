@@ -1,13 +1,11 @@
 use super::lexer::{Token, DataType};
-use std::{collections::HashMap, convert::TryFrom};
+use std::{collections::HashMap, convert::TryFrom, rc::Rc, cell::RefCell};
 
 #[derive(Debug)]
 pub enum ParseError {
     UnexpectedToken { expected: &'static str, got: Token },
     UnexpectedReadIndex(usize),
-    UnexpectedAssignmentTarget,
-    IdentifierShadowing(String),
-    UnexpectedVariableValueType { expected: DataType, recieved: DataType },
+    UnexpectedAssignmentTarget(Box<Expression>),
 }
 #[derive(Debug, Clone)]
 pub enum BinaryOp {
@@ -30,19 +28,25 @@ pub enum UnaryOp {
     LNot,
     Negate,
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum LiteralType {
     String(String),
     Int(i64),
     Float(f64),
     Bool(bool),
     Null,
+    Class(Rc<RefCell<ClassData>>),
 }
 #[derive(Debug, Clone)]
 pub struct FunctionData {
     pub data_type: Option<DataType>,
     pub parameters: Vec<(DataType, String)>,
     pub block: Vec<Statement>,
+}
+#[derive(Debug, Clone)]
+pub struct ClassData {
+    pub vars: HashMap<String, LiteralType>,
+    pub funcs: HashMap<String, FunctionData>,
 }
 #[derive(Debug, Clone)]
 pub enum Expression {
@@ -58,13 +62,17 @@ pub enum Expression {
     Literal(LiteralType),
     Variable(String),
     Assignment {
-        name: String,
+        target: Box<Expression>,
         value: Box<Expression>,
     },
     Call {
         callee: Box<Expression>,
         parameters: Vec<Expression>,
-    }
+    },
+    MemeberAccess {
+        class: Box<Expression>,
+        member: String,
+    },
 }
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -125,6 +133,7 @@ impl TryFrom<&LiteralType> for DataType {
             LiteralType::Float(_) => Ok(DataType::Float),
             LiteralType::Int(_) => Ok(DataType::Int),
             LiteralType::String(_) => Ok(DataType::String),
+            LiteralType::Class(_) => Ok(DataType::Class),
             LiteralType::Null => Err(LiteralType::Null),
         }
     }
@@ -453,14 +462,13 @@ impl Parser {
         if self.match_advance(&[Token::Assign]) {
             let value: Box<Expression> = self.assignment()?;
 
-            if let Expression::Variable(name) = *expr {
-                return Ok(Box::new(Expression::Assignment { name: name, value: value }));
+            match &*expr {
+                Expression::Variable(_) | Expression::MemeberAccess { .. } => return Ok(Box::new(Expression::Assignment { target: expr, value })),
+                _ => return Err(ParseError::UnexpectedAssignmentTarget(expr)),
             }
-
-            return Err(ParseError::UnexpectedAssignmentTarget);
         }
 
-        return Ok(expr);
+        Ok(expr)
     }
     fn logical_or(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.logical_and()?;
@@ -599,23 +607,33 @@ impl Parser {
         return Ok(self.call()?);
     }
     fn call(&mut self) -> Result<Box<Expression>, ParseError> {
-        let expr: Box<Expression> = self.primary()?;
+        let mut expr: Box<Expression> = self.primary()?;
 
-        if self.match_advance(&[Token::LeftBracket]) {
-            let mut parameters: Vec<Expression> = Vec::new();
+        loop {
+            if self.match_advance(&[Token::LeftBracket]) {
+                let mut parameters: Vec<Expression> = Vec::new();
 
-            loop {
-                if self.match_advance(&[Token::RightBracket]) {
-                    break;
+                loop {
+                    if self.match_advance(&[Token::RightBracket]) {
+                        break;
+                    }
+
+                    parameters.push(*self.expression()?);
+                    if !self.match_advance(&[Token::Semicolon]) {
+                        return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+                    }
                 }
 
-                parameters.push(*self.expression()?);
-                if !self.match_advance(&[Token::Semicolon]) {
-                    return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+                expr = Box::new(Expression::Call { callee: expr, parameters });
+            }
+            else if self.match_advance(&[Token::Dot]) {
+                if let Token::Identifier(member) = self.advance()?.clone() {
+                    expr = Box::new(Expression::MemeberAccess { class: expr, member });
                 }
             }
-
-            return Ok(Box::new(Expression::Call { callee: expr, parameters }));
+            else {
+                break;
+            }
         }
 
         Ok(expr)

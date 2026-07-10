@@ -19,7 +19,7 @@ pub enum Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    Int, Float, String, Bool,
+    Int, Float, String, Bool, Class,
 }
 
 #[derive(Debug)]

@@ -1,5 +1,5 @@
-use std::{collections::HashMap, mem};
-use crate::compiler::parser::FunctionData;
+use std::{cell::RefCell, collections::HashMap, mem, rc::Rc};
+use crate::compiler::parser::{ClassData, FunctionData};
 
 use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
@@ -9,25 +9,21 @@ pub enum EvaluateError {
     UnexpectedUnaryOperand { operand: LiteralType, operator: UnaryOp},
     IdentifierShadowing(String),
     UndeclaredVariable(String),
+    UndeclaredVariableInClass(String),
     UndeclaredFunction(String),
+    UndeclaredClass(String),
     UnexpectedCondition(LiteralType),
     UnexpectedVariableValueType { expected: DataType, recieved: LiteralType },
     UnexpectedFunctionCallee(Expression),
     UnexpectedParameterCount { callee: Expression, expected: usize, got: usize },
     UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
     UnexpectedStatementInClass { class: String, statement: Statement },
+    ExpressionIsNotClass(Box<Expression>),
 }
-
 pub enum ControlFlow {
     None,
     Return(Option<LiteralType>),
 }
-
-pub struct ClassData {
-    vars: HashMap<String, LiteralType>,
-    funcs: HashMap<String, FunctionData>,
-}
-
 pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     for statement in statements.iter() {
         if let ControlFlow::Return(expr) = evaluate_statement(statement, global_vars, vars, funcs, classes)? {
@@ -41,7 +37,7 @@ pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMa
 fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     return match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
-            if is_declared(n, vars) {
+            if vars.iter().any(|map| map.contains_key(n)) {
                 Err(EvaluateError::IdentifierShadowing(n.to_owned()))
             }
             else {
@@ -189,19 +185,40 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
         Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
         
         Expression::Binary { left: l, operator: o, right: r } => evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs, classes)?, o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
-        Expression::Assignment { name: n, value: v } => {
-            if is_declared(n, vars) {
-                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
-                assign_var(n, &value, vars)?;
-                Ok(value)
-            }
-            else {
-                Err(EvaluateError::UndeclaredVariable(n.to_owned()))
+        Expression::Assignment { target: t, value: v } => {
+            match &**t {
+                Expression::Variable(name) => { 
+                    let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+                    if let Some(hash_map) = vars.iter_mut().find(|map| map.contains_key(name)) {
+                        hash_map.insert(name.clone() ,value.clone());
+                        Ok(value)
+                    }
+                    else {
+                        Err(EvaluateError::UndeclaredVariable(name.to_owned()))
+                    }
+                },
+                Expression::MemeberAccess { class, member } => {
+                    let class_data: Rc<RefCell<ClassData>> = match evaluate_expression(class, global_vars, vars, funcs, classes)? {
+                        LiteralType::Class(c) => c,
+                        _ => return Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+                    };
+                    if !class_data.borrow().vars.contains_key(member) {
+                        return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
+                    }
+
+
+                    let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+                    class_data.borrow_mut().vars.insert(member.clone(), value);
+
+                    Ok(class_data.borrow().vars.get(member).unwrap().clone())
+
+                },
+                _ => unreachable!() 
             }
         },
         Expression::Variable(n) => {
-            match get_var(n, vars) {
-                Some(v) => Ok(v),
+            match vars.iter().rev().find(|map| map.contains_key(n)).map(|map| map.get(n).unwrap()) {
+                Some(v) => Ok(v.clone()),
                 None => Err(EvaluateError::UndeclaredVariable(n.to_owned()))
             } 
         },
@@ -237,39 +254,20 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 },
                other => Err(EvaluateError::UnexpectedFunctionCallee(other)),
             }
+        },
+        Expression::MemeberAccess { class, member } => {
+            let class_data: Rc<RefCell<ClassData>> = match evaluate_expression(class, global_vars, vars, funcs, classes)? {
+                LiteralType::Class(c) => c,
+                _ => return Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+            };
+
+            if !class_data.borrow().vars.contains_key(member) {
+                return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
+            }
+
+            Ok(class_data.borrow().vars.get(member).unwrap().clone())
         }
     }
-}
-
-fn is_declared(name: &str, vars: &Vec<HashMap<String, LiteralType>>) -> bool {
-    for h in vars.iter() {
-        if let Some(_) = h.get(name) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-fn get_var(name: &str, vars: &Vec<HashMap<String, LiteralType>>) -> Option<LiteralType> {
-    for h in vars.iter() {
-        if let Some(v) = h.get(name) {
-            return Some(v.clone());
-        }
-    }
-
-    return None;
-}
-
-    fn assign_var(name: &str, value: &LiteralType, vars: &mut [HashMap<String, LiteralType>]) -> Result<ControlFlow, EvaluateError> {
-        for h in vars.iter_mut() {
-        if let Some(_) = h.get(name) {
-            h.insert(name.to_owned(), value.clone());
-            return Ok(ControlFlow::None);
-        }
-    }
-
-    Err(EvaluateError::UndeclaredVariable(name.to_owned()))
 }
 
 fn evaluate_unary(operator: &UnaryOp, right: &LiteralType) -> Result<LiteralType, EvaluateError> {

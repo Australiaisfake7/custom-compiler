@@ -3,7 +3,7 @@ use lexer::Token;
 use evaluator::ControlFlow;
 use std::collections::HashMap;
 
-use crate::compiler::{evaluator::ClassData, parser::FunctionData};
+use crate::compiler::parser::{FunctionData, ClassData};
 
 mod lexer;
 mod parser;
