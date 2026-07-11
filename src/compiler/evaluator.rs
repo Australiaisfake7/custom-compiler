@@ -35,28 +35,30 @@ pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMa
 }
 
 fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
-    return match statement {
+    match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
-            if vars.iter().any(|map| map.contains_key(n)) {
-                Err(EvaluateError::IdentifierShadowing(n.to_owned()))
+            if vars.iter().any(|map| map.contains_key(n)) || global_vars.contains_key(n) {
+                return Err(EvaluateError::IdentifierShadowing(n.to_owned()));
+            }
+            let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+
+            match (&value, t) {
+                (LiteralType::Int(_), DataType::Int) => (),
+                (LiteralType::Float(_), DataType::Float) => (),
+                (LiteralType::String(_), DataType::String) => (),
+                (LiteralType::Bool(_), DataType::Bool) => (),
+                (LiteralType::Null, _) => (),
+                (other_val, other_type) => return Err(EvaluateError::UnexpectedVariableValueType { expected: other_type.clone(), recieved: other_val.clone() })
+            }
+
+            if vars.len() == 0 {
+                global_vars.insert(n.clone(), value);
             }
             else {
-                let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+                vars.last_mut().unwrap().insert(n.clone(), value);
+            }    
 
-                match (&value, t) {
-                    (LiteralType::Int(_), DataType::Int) => (),
-                    (LiteralType::Float(_), DataType::Float) => (),
-                    (LiteralType::String(_), DataType::String) => (),
-                    (LiteralType::Bool(_), DataType::Bool) => (),
-                    (LiteralType::Null, _) => (),
-                    (other_val, other_type) => return Err(EvaluateError::UnexpectedVariableValueType { expected: other_type.clone(), recieved: other_val.clone() })
-                }
-
-                if let Some(h) = vars.last_mut() {
-                    h.insert(n.to_owned(), value);
-                }
-                Ok(ControlFlow::None)
-            }
+            Ok(ControlFlow::None)
         },
         Statement::Expression(expr) => {
             let _ = evaluate_expression(expr, global_vars, vars, funcs, classes)?;
@@ -66,7 +68,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             vars.push(HashMap::new());
             let result: Result<ControlFlow, EvaluateError> = evaluate_statements(stmts, global_vars, vars, funcs, classes);
             vars.pop();
-            result.map(|c| ControlFlow::None)
+            result.map(|_| ControlFlow::None)
         },
         Statement::If { condition: c, block} => {
             match evaluate_expression(c, global_vars, vars, funcs, classes)? {
@@ -176,7 +178,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
 
             Ok(ControlFlow::None)
         }
-    };
+    }
 }
 
 fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<LiteralType, EvaluateError> {
@@ -189,13 +191,19 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
             match &**t {
                 Expression::Variable(name) => { 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
-                    if let Some(hash_map) = vars.iter_mut().find(|map| map.contains_key(name)) {
-                        hash_map.insert(name.clone() ,value.clone());
-                        Ok(value)
+
+                    let map:& mut HashMap<String, LiteralType> = match vars.len() {
+                        0 => global_vars,
+                        _ => vars.last_mut().unwrap(),
+                    };
+
+                    if !map.contains_key(name) {
+                        return Err(EvaluateError::UndeclaredVariable(name.clone()));
                     }
-                    else {
-                        Err(EvaluateError::UndeclaredVariable(name.to_owned()))
-                    }
+                    
+                    map.insert(name.clone(), value.clone());
+
+                    Ok(value)
                 },
                 Expression::MemeberAccess { class, member } => {
                     let class_data: Rc<RefCell<ClassData>> = match evaluate_expression(class, global_vars, vars, funcs, classes)? {
@@ -205,7 +213,6 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     if !class_data.borrow().vars.contains_key(member) {
                         return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
                     }
-
 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
                     class_data.borrow_mut().vars.insert(member.clone(), value);
@@ -217,10 +224,15 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
             }
         },
         Expression::Variable(n) => {
-            match vars.iter().rev().find(|map| map.contains_key(n)).map(|map| map.get(n).unwrap()) {
-                Some(v) => Ok(v.clone()),
-                None => Err(EvaluateError::UndeclaredVariable(n.to_owned()))
-            } 
+            if let Some(map) = vars.iter().rev().find(|map| map.contains_key(n)) {
+                Ok(map.get(n).unwrap().clone())
+            }
+            else if global_vars.contains_key(n) {
+                Ok(global_vars.get(n).unwrap().clone())
+            }
+            else {
+                Err(EvaluateError::UndeclaredVariable(n.clone()))
+            }
         },
         Expression::Call { callee, parameters } => {
             match *callee.clone() {
