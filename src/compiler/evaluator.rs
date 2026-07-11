@@ -1,7 +1,5 @@
 use std::{cell::RefCell, collections::HashMap, mem, rc::Rc};
-use crate::compiler::parser::{ClassData, FunctionData};
-
-use super::{lexer::DataType, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
+use crate::compiler::{lexer::DataType, parser::{ClassData, FunctionData, VariableData, BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
 pub enum EvaluateError {
@@ -24,7 +22,7 @@ pub enum ControlFlow {
     None,
     Return(Option<LiteralType>),
 }
-pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
+pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     for statement in statements.iter() {
         if let ControlFlow::Return(expr) = evaluate_statement(statement, global_vars, vars, funcs, classes)? {
             return Ok(ControlFlow::Return(expr));
@@ -34,7 +32,7 @@ pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMa
     Ok(ControlFlow::None)
 }
 
-fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
+fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
             if vars.iter().any(|map| map.contains_key(n)) || global_vars.contains_key(n) {
@@ -42,20 +40,15 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             }
             let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-            match (&value, t) {
-                (LiteralType::Int(_), DataType::Int) => (),
-                (LiteralType::Float(_), DataType::Float) => (),
-                (LiteralType::String(_), DataType::String) => (),
-                (LiteralType::Bool(_), DataType::Bool) => (),
-                (LiteralType::Null, _) => (),
-                (other_val, other_type) => return Err(EvaluateError::UnexpectedVariableValueType { expected: other_type.clone(), recieved: other_val.clone() })
+            if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(t)).unwrap_or_else(|l| l != LiteralType::Null) {
+                return Err(EvaluateError::UnexpectedVariableValueType { expected: t.clone(), recieved: value.clone() });
             }
 
             if vars.len() == 0 {
-                global_vars.insert(n.clone(), value);
+                global_vars.insert(n.clone(), VariableData { data_type: t.clone(), value });
             }
             else {
-                vars.last_mut().unwrap().insert(n.clone(), value);
+                vars.last_mut().unwrap().insert(n.clone(), VariableData { data_type: t.clone(), value });
             }    
 
             Ok(ControlFlow::None)
@@ -145,7 +138,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
             Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs, classes)).transpose()?))
         },
         Statement::Class { name, block } => {
-            let mut class_vars: HashMap<String, LiteralType> = HashMap::new();
+            let mut class_vars: HashMap<String, VariableData> = HashMap::new();
             let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
             
             for statement in block {
@@ -157,11 +150,11 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
 
                         let v: LiteralType = evaluate_expression(value, global_vars, vars, funcs, classes)?;
 
-                        if DataType::try_from(&v).map(|t| mem::discriminant(&t) != mem::discriminant(data_type)).unwrap_or(false) {
+                        if DataType::try_from(&v).map(|t| mem::discriminant(&t) != mem::discriminant(data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
                             return Err(EvaluateError::UnexpectedVariableValueType { expected: data_type.clone(), recieved: v })
                         }
 
-                        class_vars.insert(n.clone(), v);
+                        class_vars.insert(n.clone(), VariableData { data_type: data_type.clone(), value: v });
                     },
                     Statement::Function { name: n, data } => {
                         if class_funcs.contains_key(n) {
@@ -181,7 +174,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, L
     }
 }
 
-fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, LiteralType>, vars: &mut Vec<HashMap<String, LiteralType>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<LiteralType, EvaluateError> {
+fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<LiteralType, EvaluateError> {
     match expression {
         Expression::Literal(t) => Ok(t.clone()),
         Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
@@ -192,7 +185,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 Expression::Variable(name) => { 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-                    let map:& mut HashMap<String, LiteralType> = match vars.len() {
+                    let map:& mut HashMap<String, VariableData> = match vars.len() {
                         0 => global_vars,
                         _ => vars.last_mut().unwrap(),
                     };
@@ -200,8 +193,11 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     if !map.contains_key(name) {
                         return Err(EvaluateError::UndeclaredVariable(name.clone()));
                     }
+                    if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&map.get(name).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
+                        return Err(EvaluateError::UnexpectedVariableValueType { expected: map.get(name).unwrap().data_type.clone(), recieved: value });
+                    }
                     
-                    map.insert(name.clone(), value.clone());
+                    map.get_mut(name).unwrap().value = value.clone();
 
                     Ok(value)
                 },
@@ -215,20 +211,23 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     }
 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
-                    class_data.borrow_mut().vars.insert(member.clone(), value);
 
-                    Ok(class_data.borrow().vars.get(member).unwrap().clone())
-
+                    if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&class_data.borrow().vars.get(member).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
+                        return Err(EvaluateError::UnexpectedVariableValueType { expected: class_data.borrow().vars.get(member).unwrap().data_type.clone(), recieved: value });
+                    }
+                    
+                    class_data.borrow_mut().vars.get_mut(member).unwrap().value = value.clone();
+                    Ok(value)
                 },
                 _ => unreachable!() 
             }
         },
         Expression::Variable(n) => {
             if let Some(map) = vars.iter().rev().find(|map| map.contains_key(n)) {
-                Ok(map.get(n).unwrap().clone())
+                Ok(map.get(n).unwrap().value.clone())
             }
             else if global_vars.contains_key(n) {
-                Ok(global_vars.get(n).unwrap().clone())
+                Ok(global_vars.get(n).unwrap().value.clone())
             }
             else {
                 Err(EvaluateError::UndeclaredVariable(n.clone()))
@@ -241,7 +240,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         return Err(EvaluateError::UndeclaredFunction(n));
                     }
 
-                    let mut func_vars: Vec<HashMap<String, LiteralType>> = vec![HashMap::new()];
+                    let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
                     let func_data: FunctionData = funcs.get(&n).unwrap().clone();
 
                     if parameters.len() != func_data.parameters.len() {
@@ -256,7 +255,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             return Err(EvaluateError::UnexpectedParameterType { callee: *callee.clone(), expected: d.clone(), got: p });
                         }
 
-                        func_vars.first_mut().unwrap().insert(s.clone(), p);
+                        func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
                     }
 
                     match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
@@ -277,7 +276,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
             }
 
-            Ok(class_data.borrow().vars.get(member).unwrap().clone())
+            Ok(class_data.borrow().vars.get(member).unwrap().value.clone())
         }
     }
 }

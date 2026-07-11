@@ -7,7 +7,7 @@ pub enum ParseError {
     UnexpectedReadIndex(usize),
     UnexpectedAssignmentTarget(Box<Expression>),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOp {
     Add,
     Subtract,
@@ -23,12 +23,12 @@ pub enum BinaryOp {
     LOr,
     Assign,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     LNot,
     Negate,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiteralType {
     String(String),
     Int(i64),
@@ -37,18 +37,23 @@ pub enum LiteralType {
     Null,
     Class(Rc<RefCell<ClassData>>),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariableData {
+    pub data_type: DataType,
+    pub value: LiteralType,
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
     pub data_type: Option<DataType>,
     pub parameters: Vec<(DataType, String)>,
     pub block: Vec<Statement>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClassData {
-    pub vars: HashMap<String, LiteralType>,
+    pub vars: HashMap<String, VariableData>,
     pub funcs: HashMap<String, FunctionData>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Binary {
         left: Box<Expression>,
@@ -74,7 +79,7 @@ pub enum Expression {
         member: String,
     },
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Expression(Box<Expression>),
     Declaration {name: String, value: Box<Expression>, data_type: DataType},
