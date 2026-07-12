@@ -17,6 +17,7 @@ pub enum EvaluateError {
     UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
     UnexpectedStatementInClass { class: String, statement: Statement },
     ExpressionIsNotClass(Box<Expression>),
+    DivisionByZero { dividend: Box<Expression>, divisor: Box<Expression> },
 }
 pub enum ControlFlow {
     None,
@@ -179,7 +180,15 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
         Expression::Literal(t) => Ok(t.clone()),
         Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
         
-        Expression::Binary { left: l, operator: o, right: r } => evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs, classes)?, o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
+        Expression::Binary { left: l, operator: o, right: r } => {
+            let right_value: LiteralType = evaluate_expression(r, global_vars, vars, funcs, classes)?;
+            
+            if o == &BinaryOp::Divide && (right_value == LiteralType::Int(0) || right_value == LiteralType::Float(0.0)) {
+                return Err(EvaluateError::DivisionByZero { dividend: l.clone(), divisor: r.clone() });
+            }
+            
+            evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs, classes)?, o, &right_value)
+        }
         Expression::Assignment { target: t, value: v } => {
             match &**t {
                 Expression::Variable(name) => { 
