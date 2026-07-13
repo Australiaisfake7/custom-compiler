@@ -194,9 +194,15 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 Expression::Variable(name) => { 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-                    let map:& mut HashMap<String, VariableData> = match vars.len() {
-                        0 => global_vars,
-                        _ => vars.last_mut().unwrap(),
+
+                    let map: &mut HashMap<String, VariableData> = if let Some(m) = vars.iter_mut().find(|map| map.contains_key(name)) {
+                        m
+                    }
+                    else if global_vars.contains_key(name) {
+                        global_vars
+                    }
+                    else {
+                        return Err(EvaluateError::UndeclaredVariable(name.clone()));
                     };
 
                     if !map.contains_key(name) {
