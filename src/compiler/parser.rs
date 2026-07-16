@@ -74,7 +74,7 @@ pub enum Expression {
         callee: Box<Expression>,
         parameters: Vec<Expression>,
     },
-    MemeberAccess {
+    MemberAccess {
         class: Box<Expression>,
         member: String,
     },
@@ -468,7 +468,7 @@ impl Parser {
             let value: Box<Expression> = self.assignment()?;
 
             match &*expr {
-                Expression::Variable(_) | Expression::MemeberAccess { .. } => return Ok(Box::new(Expression::Assignment { target: expr, value })),
+                Expression::Variable(_) | Expression::MemberAccess { .. } => return Ok(Box::new(Expression::Assignment { target: expr, value })),
                 _ => return Err(ParseError::UnexpectedAssignmentTarget(expr)),
             }
         }
@@ -633,7 +633,7 @@ impl Parser {
             }
             else if self.match_advance(&[Token::Dot]) {
                 if let Token::Identifier(member) = self.advance()?.clone() {
-                    expr = Box::new(Expression::MemeberAccess { class: expr, member });
+                    expr = Box::new(Expression::MemberAccess { class: expr, member });
                 }
             }
             else {

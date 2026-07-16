@@ -7,7 +7,7 @@ pub enum EvaluateError {
     UnexpectedUnaryOperand { operand: LiteralType, operator: UnaryOp},
     IdentifierShadowing(String),
     UndeclaredVariable(String),
-    UndeclaredVariableInClass(String),
+    UndeclaredVariableInClass { class: Box<Expression>, variable: String },
     UndeclaredFunction(String),
     UndeclaredClass(String),
     UnexpectedCondition(LiteralType),
@@ -194,7 +194,6 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 Expression::Variable(name) => { 
                     let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-
                     let map: &mut HashMap<String, VariableData> = if let Some(m) = vars.iter_mut().find(|map| map.contains_key(name)) {
                         m
                     }
@@ -216,23 +215,35 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
 
                     Ok(value)
                 },
-                Expression::MemeberAccess { class, member } => {
-                    let class_data: Rc<RefCell<ClassData>> = match evaluate_expression(class, global_vars, vars, funcs, classes)? {
-                        LiteralType::Class(c) => c,
-                        _ => return Err(EvaluateError::ExpressionIsNotClass(class.clone()))
-                    };
-                    if !class_data.borrow().vars.contains_key(member) {
-                        return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
-                    }
+                Expression::MemberAccess { class, member } => {
+                    if let Expression::Variable(name) = &**class {
+                        let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-                    let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+                        if !classes.contains_key(name) {
+                            return Err(EvaluateError::UndeclaredClass(name.clone()));
+                        }
+                        if !classes.get(name).unwrap().vars.contains_key(member) {
+                            return Err(EvaluateError::UndeclaredVariableInClass{ class: class.clone(), variable: member.clone()});
+                        }
 
-                    if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&class_data.borrow().vars.get(member).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
-                        return Err(EvaluateError::UnexpectedVariableValueType { expected: class_data.borrow().vars.get(member).unwrap().data_type.clone(), recieved: value });
+                        classes.get_mut(name).unwrap().vars.get_mut(member).unwrap().value = value.clone();
+
+                        Ok(value)
                     }
-                    
-                    class_data.borrow_mut().vars.get_mut(member).unwrap().value = value.clone();
-                    Ok(value)
+                    else if let LiteralType::Class(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
+                        let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
+
+                        if !data.borrow().vars.contains_key(member) {
+                            return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
+                        }
+
+                        data.borrow_mut().vars.get_mut(member).unwrap().value = value.clone();
+
+                        Ok(value)
+                    }
+                    else {
+                        Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+                    }
                 },
                 _ => unreachable!() 
             }
@@ -281,17 +292,27 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                other => Err(EvaluateError::UnexpectedFunctionCallee(other)),
             }
         },
-        Expression::MemeberAccess { class, member } => {
-            let class_data: Rc<RefCell<ClassData>> = match evaluate_expression(class, global_vars, vars, funcs, classes)? {
-                LiteralType::Class(c) => c,
-                _ => return Err(EvaluateError::ExpressionIsNotClass(class.clone()))
-            };
+        Expression::MemberAccess { class, member } => {
+            if let Expression::Variable(name) = &**class {
+                if !classes.contains_key(name) {
+                    return Err(EvaluateError::UndeclaredClass(name.clone()));
+                }
+                if !classes.get(name).unwrap().vars.contains_key(member) {
+                    return Err(EvaluateError::UndeclaredVariableInClass{ class: class.clone(), variable: member.clone()});
+                }
 
-            if !class_data.borrow().vars.contains_key(member) {
-                return Err(EvaluateError::UndeclaredVariableInClass(member.clone()))
+                Ok(classes.get(name).unwrap().vars.get(member).unwrap().value.clone())
             }
+            else if let LiteralType::Class(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
+                if !data.borrow().vars.contains_key(member) {
+                    return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
+                }
 
-            Ok(class_data.borrow().vars.get(member).unwrap().value.clone())
+                Ok(data.borrow().vars.get(member).unwrap().value.clone())
+            }
+            else {
+                Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+            }
         }
     }
 }
