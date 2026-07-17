@@ -35,7 +35,7 @@ pub enum LiteralType {
     Float(f64),
     Bool(bool),
     Null,
-    Class(Rc<RefCell<ClassData>>),
+    Instance(Rc<RefCell<ClassData>>),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableData {
@@ -138,7 +138,7 @@ impl TryFrom<&LiteralType> for DataType {
             LiteralType::Float(_) => Ok(DataType::Float),
             LiteralType::Int(_) => Ok(DataType::Int),
             LiteralType::String(_) => Ok(DataType::String),
-            LiteralType::Class(_) => Ok(DataType::Class),
+            LiteralType::Instance(_) => Ok(DataType::Instance),
             LiteralType::Null => Err(LiteralType::Null),
         }
     }

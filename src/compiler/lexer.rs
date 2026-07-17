@@ -3,7 +3,7 @@ use std::str::Chars;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus, Slash, Asterix, Colon, Semicolon,
+    Dot, Minus, Plus, Slash, Asterix, Semicolon,
 
     Identifier(String), String(String), Int(i64), Float(f64), Bool(bool),
 
@@ -19,7 +19,7 @@ pub enum Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    Int, Float, String, Bool, Class,
+    Int, Float, String, Bool, Instance,
 }
 
 #[derive(Debug)]
@@ -84,13 +84,11 @@ impl<'a> Scanner<'a> {
             Some('}') => Ok(Token::RightBrace),
             Some('(') => Ok(Token::LeftBracket),
             Some(')') => Ok(Token::RightBracket),
-            Some(',') => Ok(Token::Comma),
             Some('.') => Ok(Token::Dot),
             Some('-') => Ok(Token::Minus),
             Some('+') => Ok(Token::Plus),
             Some('/') => Ok(Token::Slash),
             Some('*') => Ok(Token::Asterix),
-            Some(':') => Ok(Token::Colon),
             Some(';') => Ok(Token::Semicolon),
             Some('=') => {
                 if self.match_advance('=') { Ok(Token::Equal) }
@@ -195,6 +193,7 @@ impl<'a> Scanner<'a> {
                     "float" => Token::DataType(DataType::Float),
                     "string" => Token::DataType(DataType::String),
                     "bool" => Token::DataType(DataType::Bool),
+                    "instance" => Token::DataType(DataType::Instance),
                     "print" => Token::Print,
                     "fun" => Token::Fun,
                     "return" => Token::Return,
