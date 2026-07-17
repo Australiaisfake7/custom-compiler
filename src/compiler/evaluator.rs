@@ -357,17 +357,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
             }
         },
         Expression::MemberAccess { class, member } => {
-            if let Expression::Variable(name) = &**class {
-                if !classes.contains_key(name) {
-                    return Err(EvaluateError::UndeclaredClass(name.clone()));
-                }
-                if !classes.get(name).unwrap().vars.contains_key(member) {
-                    return Err(EvaluateError::UndeclaredVariableInClass{ class: class.clone(), variable: member.clone()});
-                }
-
-                Ok(classes.get(name).unwrap().vars.get(member).unwrap().value.clone())
-            }
-            else if let LiteralType::Instance(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
+            if let LiteralType::Instance(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
                 if !data.borrow().vars.contains_key(member) {
                     return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                 }
