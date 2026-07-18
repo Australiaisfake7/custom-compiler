@@ -16,7 +16,7 @@ pub enum EvaluateError {
     UnexpectedParameterCount { callee: Expression, expected: usize, got: usize },
     UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
     UnexpectedStatementInClass { class: String, statement: Statement },
-    ExpressionIsNotClass(Box<Expression>),
+    ExpressionIsNotClass { expr: Box<Expression>, value: LiteralType },
     DivisionByZero { dividend: Box<Expression>, divisor: Box<Expression> },
 }
 pub enum ControlFlow {
@@ -216,21 +216,8 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     Ok(value)
                 },
                 Expression::MemberAccess { class, member } => {
-                    if let Expression::Variable(name) = &**class {
-                        let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
-
-                        if !classes.contains_key(name) {
-                            return Err(EvaluateError::UndeclaredClass(name.clone()));
-                        }
-                        if !classes.get(name).unwrap().vars.contains_key(member) {
-                            return Err(EvaluateError::UndeclaredVariableInClass{ class: class.clone(), variable: member.clone()});
-                        }
-
-                        classes.get_mut(name).unwrap().vars.get_mut(member).unwrap().value = value.clone();
-
-                        Ok(value)
-                    }
-                    else if let LiteralType::Instance(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
+                    let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(class, global_vars, vars, funcs, classes);
+                    if let Ok(LiteralType::Instance(data)) = evaluated {
                         let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
                         if !data.borrow().vars.contains_key(member) {
@@ -242,7 +229,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         Ok(value)
                     }
                     else {
-                        Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+                        Err(EvaluateError::ExpressionIsNotClass { expr: class.clone(), value: evaluated? })
                     }
                 },
                 _ => unreachable!() 
@@ -290,7 +277,8 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     }
                 },
                 Expression::MemberAccess { class, member } => {
-                    if let Ok(LiteralType::Instance(data)) = evaluate_expression(&class, global_vars, vars, funcs, classes) {
+                    let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(&class, global_vars, vars, funcs, classes);
+                    if let Ok(LiteralType::Instance(data)) = evaluated {
                         if !data.borrow().funcs.contains_key(&member) {
                             return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                         }
@@ -318,46 +306,16 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             ControlFlow::Return(expr) => Ok(expr.unwrap_or(LiteralType::Null))
                         }
                     }
-                    else if let Expression::Variable(name) = &*class {
-                        if !classes.contains_key(name) {
-                            return Err(EvaluateError::UndeclaredClass(name.clone()));
-                        }
-                        if !classes.get(name).unwrap().funcs.contains_key(&member) {
-                            return Err(EvaluateError::UndeclaredVariableInClass{ class: class.clone(), variable: member.clone()});
-                        }
-
-                        let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
-                        let func_data: FunctionData = classes.get(name).unwrap().funcs.get(&member).unwrap().clone();
-
-                        if parameters.len() != func_data.parameters.len() {
-                            return Err(EvaluateError::UnexpectedParameterCount { callee: *callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
-                        }
-                        for (i, (d, s)) in func_data.parameters.iter().enumerate() {
-                            let p: LiteralType = match parameters.get(i) {
-                                Some(v) => evaluate_expression(v, global_vars, vars, funcs, classes)?,
-                                None => unreachable!(),
-                            };
-                            if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
-                                return Err(EvaluateError::UnexpectedParameterType { callee: *callee.clone(), expected: d.clone(), got: p });
-                            }
-
-                            func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
-                        }
-
-                        match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
-                            ControlFlow::None => Ok(LiteralType::Null),
-                            ControlFlow::Return(expr) => Ok(expr.unwrap_or(LiteralType::Null))
-                        }
-                    }
                     else {
-                        Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+                        Err(EvaluateError::ExpressionIsNotClass {expr: class, value: evaluated? })
                     }
                 }
                other => Err(EvaluateError::UnexpectedFunctionCallee(other)),
             }
         },
         Expression::MemberAccess { class, member } => {
-            if let LiteralType::Instance(data) = evaluate_expression(class, global_vars, vars, funcs, classes)? {
+            let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(class, global_vars, vars, funcs, classes);
+            if let Ok(LiteralType::Instance(data)) = evaluated {
                 if !data.borrow().vars.contains_key(member) {
                     return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                 }
@@ -365,7 +323,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                 Ok(data.borrow().vars.get(member).unwrap().value.clone())
             }
             else {
-                Err(EvaluateError::ExpressionIsNotClass(class.clone()))
+                Err(EvaluateError::ExpressionIsNotClass { expr: class.clone(), value: evaluated? })
             }
         }
     }
