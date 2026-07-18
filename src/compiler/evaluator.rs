@@ -223,6 +223,9 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         if !data.borrow().vars.contains_key(member) {
                             return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                         }
+                        if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&data.borrow().vars.get(member).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
+                            return Err(EvaluateError::UnexpectedVariableValueType { expected: data.borrow().vars.get(member).unwrap().data_type.clone(), recieved: value });
+                        }
 
                         data.borrow_mut().vars.get_mut(member).unwrap().value = value.clone();
 
