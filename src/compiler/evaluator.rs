@@ -18,6 +18,7 @@ pub enum EvaluateError {
     UnexpectedStatementInClass { class: String, statement: Statement },
     ExpressionIsNotClass { expr: Box<Expression>, value: LiteralType },
     DivisionByZero { dividend: Box<Expression>, divisor: Box<Expression> },
+    DeclerationInsideScope(Statement),
 }
 pub enum ControlFlow {
     None,
@@ -128,6 +129,9 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             Ok(ControlFlow::None)
         },
         Statement::Function { name, data } => {
+            if vars.len() != 0 {
+                return Err(EvaluateError::DeclerationInsideScope(statement.clone()));
+            }
             if funcs.contains_key(name) {
                 return Err(EvaluateError::IdentifierShadowing(name.clone()));
             }
@@ -139,6 +143,10 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs, classes)).transpose()?))
         },
         Statement::Class { name, block } => {
+            if vars.len() != 0 {
+                return Err(EvaluateError::DeclerationInsideScope(statement.clone()));
+            }
+
             let mut class_vars: HashMap<String, VariableData> = HashMap::new();
             let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
             
