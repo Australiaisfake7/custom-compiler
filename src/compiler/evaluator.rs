@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell}, collections::HashMap, mem, rc::Rc};
+use std::{collections::HashMap, mem};
 use crate::compiler::{lexer::DataType, parser::{ClassData, FunctionData, VariableData, BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
@@ -12,6 +12,7 @@ pub enum EvaluateError {
     UndeclaredClass(String),
     UnexpectedCondition(LiteralType),
     UnexpectedVariableValueType { expected: DataType, recieved: LiteralType },
+    UnexpectedReturnValueType { expected: Option<DataType>, recieved: LiteralType },
     UnexpectedFunctionCallee(Expression),
     UnexpectedParameterCount { callee: Expression, expected: usize, got: usize },
     UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
@@ -282,9 +283,21 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
                     }
 
-                    match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
-                        ControlFlow::None => Ok(LiteralType::Null),
-                        ControlFlow::Return(expr) => Ok(expr.unwrap_or(LiteralType::Null))
+                    let return_value: LiteralType = match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
+                        ControlFlow::None => LiteralType::Null,
+                        ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null)
+                    };
+
+                    let correct_type: bool = match func_data.data_type.clone() {
+                        Some(d) => DataType::try_from(&return_value).map(|data_type| mem::discriminant(&data_type) == mem::discriminant(&d)).unwrap_or(true),
+                        None => return_value == LiteralType::Null,
+                    };
+
+                    if correct_type {
+                        Ok(return_value)
+                    }
+                    else {
+                        Err(EvaluateError::UnexpectedReturnValueType { expected: func_data.data_type, recieved: return_value })
                     }
                 },
                 Expression::MemberAccess { class, member } => {
@@ -312,9 +325,21 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
                         }
 
-                        match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
-                            ControlFlow::None => Ok(LiteralType::Null),
-                            ControlFlow::Return(expr) => Ok(expr.unwrap_or(LiteralType::Null))
+                        let return_value: LiteralType = match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
+                            ControlFlow::None => LiteralType::Null,
+                            ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null)
+                        };
+
+                        let correct_type: bool = match func_data.data_type.clone() {
+                            Some(d) => DataType::try_from(&return_value).map(|data_type| mem::discriminant(&data_type) == mem::discriminant(&d)).unwrap_or(true),
+                            None => return_value == LiteralType::Null,
+                        };
+
+                        if correct_type {
+                            Ok(return_value)
+                        }
+                        else {
+                            Err(EvaluateError::UnexpectedReturnValueType { expected: func_data.data_type, recieved: return_value })
                         }
                     }
                     else {
