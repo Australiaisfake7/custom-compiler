@@ -6,6 +6,5 @@ fn main() {
     compile("
     class n {
         let int v;
-        fun int f(int i;) {}
     }");
 }

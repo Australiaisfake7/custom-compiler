@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem};
+use std::{cell::RefCell, collections::HashMap, mem, rc::Rc};
 use crate::compiler::{lexer::DataType, parser::{ClassData, FunctionData, VariableData, BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
 
 #[derive(Debug)]
@@ -14,8 +14,8 @@ pub enum EvaluateError {
     UnexpectedVariableValueType { expected: DataType, recieved: LiteralType },
     UnexpectedReturnValueType { expected: Option<DataType>, recieved: LiteralType },
     UnexpectedFunctionCallee(Expression),
-    UnexpectedParameterCount { callee: Expression, expected: usize, got: usize },
-    UnexpectedParameterType { callee: Expression, expected: DataType, got: LiteralType },
+    UnexpectedParameterCount { callee: Box<Expression>, expected: usize, got: usize },
+    UnexpectedParameterType { callee: Box<Expression>, expected: DataType, got: LiteralType },
     UnexpectedStatementInClass { class: String, statement: Statement },
     ExpressionIsNotClass { expr: Box<Expression>, value: LiteralType },
     DivisionByZero { dividend: Box<Expression>, divisor: Box<Expression> },
@@ -144,21 +144,24 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs, classes)).transpose()?))
         },
         Statement::Class { name, block } => {
+            if classes.contains_key(name) {
+                return Err(EvaluateError::IdentifierShadowing(name.clone()))
+            }
             if vars.len() != 0 {
                 return Err(EvaluateError::DeclerationInsideScope(statement.clone()));
             }
 
             let mut class_vars: HashMap<String, VariableData> = HashMap::new();
             let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
-            
+
             for statement in block {
                 match statement {
                     Statement::Declaration { name: n, value, data_type } => {
                         if class_vars.contains_key(n) {
-                            return Err(EvaluateError::IdentifierShadowing(n.clone()));
+                            return Err(EvaluateError::IdentifierShadowing(name.clone() + "." + n));
                         }
 
-                        let v: LiteralType = evaluate_expression(value, global_vars, vars, funcs, classes)?;
+                        let v: LiteralType = evaluate_expression(value, global_vars, &mut Vec::new(), funcs, classes)?;
 
                         if DataType::try_from(&v).map(|t| mem::discriminant(&t) != mem::discriminant(data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
                             return Err(EvaluateError::UnexpectedVariableValueType { expected: data_type.clone(), recieved: v })
@@ -167,8 +170,8 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                         class_vars.insert(n.clone(), VariableData { data_type: data_type.clone(), value: v });
                     },
                     Statement::Function { name: n, data } => {
-                        if class_funcs.contains_key(n) {
-                            return Err(EvaluateError::IdentifierShadowing(n.clone()))
+                        if n == "new" || class_funcs.contains_key(n) {
+                            return Err(EvaluateError::IdentifierShadowing(name.clone() + "." + n));
                         }
 
                         class_funcs.insert(n.clone(), data.clone());
@@ -259,17 +262,17 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
             }
         },
         Expression::Call { callee, parameters } => {
-            match *callee.clone() {
+            match &**callee {
                 Expression::Variable(n) => {
-                    if !funcs.contains_key(&n) {
-                        return Err(EvaluateError::UndeclaredFunction(n));
+                    if !funcs.contains_key(n) {
+                        return Err(EvaluateError::UndeclaredFunction(n.clone()));
                     }
 
                     let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
-                    let func_data: FunctionData = funcs.get(&n).unwrap().clone();
+                    let func_data: FunctionData = funcs.get(n).unwrap().clone();
 
                     if parameters.len() != func_data.parameters.len() {
-                        return Err(EvaluateError::UnexpectedParameterCount { callee: *callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
+                        return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
                     }
                     for (i, (d, s)) in func_data.parameters.iter().enumerate() {
                         let p: LiteralType = match parameters.get(i) {
@@ -277,7 +280,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             None => unreachable!(),
                         };
                         if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
-                            return Err(EvaluateError::UnexpectedParameterType { callee: *callee.clone(), expected: d.clone(), got: p });
+                            return Err(EvaluateError::UnexpectedParameterType { callee: callee.clone(), expected: d.clone(), got: p });
                         }
 
                         func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
@@ -301,17 +304,26 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     }
                 },
                 Expression::MemberAccess { class, member } => {
+                    if let Expression::Variable(name) = &**class {
+                        if member == "new" && classes.contains_key(name) {
+                            if parameters.len() != 0 {
+                                return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: 0, got: parameters.len() });
+                            }
+
+                            return Ok(LiteralType::Instance(Rc::new(RefCell::new(classes.get(name).unwrap().clone()))));
+                        }
+                    }
                     let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(&class, global_vars, vars, funcs, classes);
                     if let Ok(LiteralType::Instance(data)) = evaluated {
-                        if !data.borrow().funcs.contains_key(&member) {
+                        if !data.borrow().funcs.contains_key(member) {
                             return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                         }
                         
                         let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
-                        let func_data: FunctionData = data.borrow().funcs.get(&member).unwrap().clone();
+                        let func_data: FunctionData = data.borrow().funcs.get(member).unwrap().clone();
 
                         if parameters.len() != func_data.parameters.len() {
-                            return Err(EvaluateError::UnexpectedParameterCount { callee: *callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
+                            return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
                         }
                         for (i, (d, s)) in func_data.parameters.iter().enumerate() {
                             let p: LiteralType = match parameters.get(i) {
@@ -319,7 +331,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                                 None => unreachable!(),
                             };
                             if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
-                                return Err(EvaluateError::UnexpectedParameterType { callee: *callee.clone(), expected: d.clone(), got: p });
+                                return Err(EvaluateError::UnexpectedParameterType { callee: callee.clone(), expected: d.clone(), got: p });
                             }
 
                             func_vars.first_mut().unwrap().insert(s.clone(), VariableData { data_type: d.clone(), value: p });
@@ -343,10 +355,10 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         }
                     }
                     else {
-                        Err(EvaluateError::ExpressionIsNotClass {expr: class, value: evaluated? })
+                        Err(EvaluateError::ExpressionIsNotClass { expr: class.clone(), value: evaluated? })
                     }
                 }
-               other => Err(EvaluateError::UnexpectedFunctionCallee(other)),
+               other => Err(EvaluateError::UnexpectedFunctionCallee(other.clone())),
             }
         },
         Expression::MemberAccess { class, member } => {
