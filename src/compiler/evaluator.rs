@@ -193,13 +193,19 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
         Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
         
         Expression::Binary { left: l, operator: o, right: r } => {
+            let left_value: LiteralType = evaluate_expression(l, global_vars, vars, funcs, classes)?;
+
+            if left_value == LiteralType::Bool(true) && *o == BinaryOp::LOr || left_value == LiteralType::Bool(false) && *o == BinaryOp::LAnd {
+                return Ok(left_value);
+            }
+
             let right_value: LiteralType = evaluate_expression(r, global_vars, vars, funcs, classes)?;
             
             if o == &BinaryOp::Divide && (right_value == LiteralType::Int(0) || right_value == LiteralType::Float(0.0)) {
                 return Err(EvaluateError::DivisionByZero { dividend: l.clone(), divisor: r.clone() });
             }
             
-            evaluate_binary(&evaluate_expression(l, global_vars, vars, funcs, classes)?, o, &right_value)
+            evaluate_binary(&left_value, o, &right_value)
         }
         Expression::Assignment { target: t, value: v } => {
             match &**t {
