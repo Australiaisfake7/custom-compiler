@@ -92,6 +92,7 @@ pub enum Statement {
     Function { name: String, data: FunctionData },
     Return(Option<Box<Expression>>),
     Class { name: String, block: Vec<Statement> },
+    Continue,
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -233,6 +234,9 @@ impl Parser {
         }
         if self.match_advance(&[Token::Class]) {
             return self.class();
+        }
+        if self.match_advance(&[Token::Continue]) {
+            return self.continue_statement();
         }
 
         let expr: Box<Expression> = self.expression()?;
@@ -443,6 +447,13 @@ impl Parser {
             Statement::Block(b) => Ok(Statement::Class { name, block: b }),
             _ => unreachable!(),
         }
+    }
+    fn continue_statement(&mut self) -> Result<Statement, ParseError> {
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+        }
+
+        Ok(Statement::Continue)
     }
     fn optional_expression(&mut self) -> Result<Option<Box<Expression>>, ParseError> {
         match self.peek()? {

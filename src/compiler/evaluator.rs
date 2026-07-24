@@ -19,16 +19,20 @@ pub enum EvaluateError {
     UnexpectedStatementInClass { class: String, statement: Statement },
     ExpressionIsNotClass { expr: Box<Expression>, value: LiteralType },
     DivisionByZero { dividend: Box<Expression>, divisor: Box<Expression> },
-    DeclerationInsideScope(Statement),
+    DeclarationInsideScope(Statement),
+    ContinueStatementNotInLoop,
 }
 pub enum ControlFlow {
     None,
     Return(Option<LiteralType>),
+    Continue,
 }
 pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
     for statement in statements.iter() {
-        if let ControlFlow::Return(expr) = evaluate_statement(statement, global_vars, vars, funcs, classes)? {
-            return Ok(ControlFlow::Return(expr));
+        match evaluate_statement(statement, global_vars, vars, funcs, classes)? {
+            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+            ControlFlow::Continue => return Ok(ControlFlow::Continue),
+            ControlFlow::None => (),
         }
     }
 
@@ -97,7 +101,10 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                     LiteralType::Bool(b) => {
                         if b {
-                            evaluate_statements(block, global_vars, vars, funcs, classes)?;
+                            match evaluate_statements(block, global_vars, vars, funcs, classes)? {
+                                ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                                _ => (),
+                            }
                         }
                         else {
                             break;
@@ -119,7 +126,10 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 };
 
                 if bool_condition {
-                    evaluate_statements(block, global_vars, vars, funcs, classes)?;
+                    match evaluate_statements(block, global_vars, vars, funcs, classes)? {
+                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                        _ => (),
+                    }
                     evaluate_statement(u, global_vars, vars, funcs, classes)?;
                 }
                 else {
@@ -131,7 +141,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
         },
         Statement::Function { name, data } => {
             if vars.len() != 0 {
-                return Err(EvaluateError::DeclerationInsideScope(statement.clone()));
+                return Err(EvaluateError::DeclarationInsideScope(statement.clone()));
             }
             if funcs.contains_key(name) {
                 return Err(EvaluateError::IdentifierShadowing(name.clone()));
@@ -148,7 +158,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 return Err(EvaluateError::IdentifierShadowing(name.clone()))
             }
             if vars.len() != 0 {
-                return Err(EvaluateError::DeclerationInsideScope(statement.clone()));
+                return Err(EvaluateError::DeclarationInsideScope(statement.clone()));
             }
 
             let mut class_vars: HashMap<String, VariableData> = HashMap::new();
@@ -183,7 +193,8 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             classes.insert(name.clone(), ClassData { vars: class_vars, funcs: class_funcs });
 
             Ok(ControlFlow::None)
-        }
+        },
+        Statement::Continue => Ok(ControlFlow::Continue),
     }
 }
 
@@ -294,7 +305,8 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
 
                     let return_value: LiteralType = match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
                         ControlFlow::None => LiteralType::Null,
-                        ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null)
+                        ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null),
+                        ControlFlow::Continue => return Err(EvaluateError::ContinueStatementNotInLoop),
                     };
 
                     let correct_type: bool = match func_data.data_type.clone() {
@@ -345,7 +357,8 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
 
                         let return_value: LiteralType = match evaluate_statements(&func_data.block, global_vars, &mut func_vars, funcs, classes)? {
                             ControlFlow::None => LiteralType::Null,
-                            ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null)
+                            ControlFlow::Return(expr) => expr.unwrap_or(LiteralType::Null),
+                            ControlFlow::Continue => return Err(EvaluateError::ContinueStatementNotInLoop),
                         };
 
                         let correct_type: bool = match func_data.data_type.clone() {
