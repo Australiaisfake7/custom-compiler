@@ -68,13 +68,17 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             vars.push(HashMap::new());
             let result: Result<ControlFlow, EvaluateError> = evaluate_statements(stmts, global_vars, vars, funcs, classes);
             vars.pop();
-            result.map(|_| ControlFlow::None)
+            result
         },
         Statement::If { condition: c, block} => {
             match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block, global_vars, vars, funcs, classes)?;
+                        match evaluate_statements(block, global_vars, vars, funcs, classes)? {
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::Continue => return Ok(ControlFlow::Continue),
+                            ControlFlow::None => (),
+                        }
                     }
                     return Ok(ControlFlow::None);
                 },
@@ -85,10 +89,18 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        evaluate_statements(block1, global_vars, vars, funcs, classes)?;
+                        match evaluate_statements(block1, global_vars, vars, funcs, classes)? {
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::Continue => return Ok(ControlFlow::Continue),
+                            ControlFlow::None => (),
+                        }
                     }
                     else {
-                        evaluate_statements(block2, global_vars, vars, funcs, classes)?;
+                        match evaluate_statements(block2, global_vars, vars, funcs, classes)? {
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::Continue => return Ok(ControlFlow::Continue),
+                            ControlFlow::None => (),
+                        }
                     }
                     return Ok(ControlFlow::None);
                 },
@@ -233,9 +245,6 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         return Err(EvaluateError::UndeclaredVariable(name.clone()));
                     };
 
-                    if !map.contains_key(name) {
-                        return Err(EvaluateError::UndeclaredVariable(name.clone()));
-                    }
                     if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&map.get(name).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
                         return Err(EvaluateError::UnexpectedVariableValueType { expected: map.get(name).unwrap().data_type.clone(), recieved: value });
                     }
