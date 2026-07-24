@@ -349,6 +349,14 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
                         let func_data: FunctionData = data.borrow().funcs.get(member).unwrap().clone();
 
+                        func_vars.first_mut().unwrap().insert(
+                            "this".to_owned(),
+                            VariableData {
+                                data_type: DataType::Instance,
+                                value: LiteralType::Instance(Rc::clone(&data))
+                            }
+                        );
+
                         if parameters.len() != func_data.parameters.len() {
                             return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: func_data.parameters.len(), got: parameters.len() });
                         }
