@@ -135,21 +135,6 @@ impl TryFrom<&Token> for UnaryOp {
     }
 }
 
-impl TryFrom<&LiteralType> for DataType {
-    type Error = LiteralType;
-
-    fn try_from(literal_type: &LiteralType) -> Result<Self, Self::Error> {
-        match literal_type {
-            LiteralType::Bool(_) => Ok(DataType::Bool),
-            LiteralType::Float(_) => Ok(DataType::Float),
-            LiteralType::Int(_) => Ok(DataType::Int),
-            LiteralType::String(_) => Ok(DataType::String),
-            LiteralType::Instance(_) => Ok(DataType::Instance),
-            LiteralType::Null => Err(LiteralType::Null),
-        }
-    }
-}
-
 pub fn parse_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, ParseError> {
     let mut parser: Parser = Parser::from_tokens(tokens);
 
@@ -252,10 +237,16 @@ impl Parser {
         return Ok(Statement::Expression(expr));
     }
     fn declaration(&mut self) -> Result<Statement, ParseError> {
+        let nullable: bool = self.match_advance(&[Token::Nullable]);
+
         let t: DataType = match self.advance()? {
-            Token::DataType(d) => d.clone(),
-            token=> return Err(ParseError::UnexpectedToken { expected: "Data Type", got: token.clone() })
-            
+            Token::DataType(d) => {
+                let mut data_type: DataType = d.clone();
+                if nullable { data_type = DataType::Nullable(Box::new(data_type)); }
+
+                data_type
+            },
+            token => return Err(ParseError::UnexpectedToken { expected: "Data Type", got: token.clone() })
         };
         let n: String = match self.advance()? {
             Token::Identifier(i) => i.clone(),

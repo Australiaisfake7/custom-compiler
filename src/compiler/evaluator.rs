@@ -48,7 +48,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             }
             let value: LiteralType = evaluate_expression(v, global_vars, vars, funcs, classes)?;
 
-            if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(t)).unwrap_or_else(|l| l != LiteralType::Null) {
+            if !is_value_type_valid(&value, t) {
                 return Err(EvaluateError::UnexpectedVariableValueType { expected: t.clone(), recieved: value.clone() });
             }
 
@@ -240,7 +240,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         return Err(EvaluateError::UndeclaredVariable(name.clone()));
                     };
 
-                    if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&map.get(name).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
+                    if !is_value_type_valid(&value, &map.get(name).unwrap().data_type) {
                         return Err(EvaluateError::UnexpectedVariableValueType { expected: map.get(name).unwrap().data_type.clone(), recieved: value });
                     }
                     
@@ -256,7 +256,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         if !data.borrow().vars.contains_key(member) {
                             return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
                         }
-                        if DataType::try_from(&value).map(|data_type| mem::discriminant(&data_type) != mem::discriminant(&data.borrow().vars.get(member).unwrap().data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
+                        if !is_value_type_valid(&value, &data.borrow().vars.get(member).unwrap().data_type) {
                             return Err(EvaluateError::UnexpectedVariableValueType { expected: data.borrow().vars.get(member).unwrap().data_type.clone(), recieved: value });
                         }
 
@@ -300,7 +300,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             Some(v) => evaluate_expression(v, global_vars, vars, funcs, classes)?,
                             None => unreachable!(),
                         };
-                        if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
+                        if !is_value_type_valid(&p, d) {
                             return Err(EvaluateError::UnexpectedParameterType { callee: callee.clone(), expected: d.clone(), got: p });
                         }
 
@@ -314,7 +314,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     };
 
                     let correct_type: bool = match func_data.data_type.clone() {
-                        Some(d) => DataType::try_from(&return_value).map(|data_type| mem::discriminant(&data_type) == mem::discriminant(&d)).unwrap_or(true),
+                        Some(d) => is_value_type_valid(&return_value, &d),
                         None => return_value == LiteralType::Null,
                     };
 
@@ -338,7 +338,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             for var in vars_iter {
                                 let value: LiteralType = evaluate_expression(&var.1.1, global_vars, vars, funcs, classes)?;
 
-                                if DataType::try_from(&value).map(|data_type| data_type != var.1.0).unwrap_or_else(|literal_type| literal_type != LiteralType::Null) {
+                                if !is_value_type_valid(&value, &var.1.0) {
                                     return Err(EvaluateError::UnexpectedVariableValueType { expected: var.1.0, recieved: value });
                                 }
 
@@ -373,7 +373,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                                 Some(v) => evaluate_expression(v, global_vars, vars, funcs, classes)?,
                                 None => unreachable!(),
                             };
-                            if DataType::try_from(&p).map(|data_type| &data_type != d).unwrap_or(false) {
+                            if !is_value_type_valid(&p, d) {
                                 return Err(EvaluateError::UnexpectedParameterType { callee: callee.clone(), expected: d.clone(), got: p });
                             }
 
@@ -387,7 +387,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                         };
 
                         let correct_type: bool = match func_data.data_type.clone() {
-                            Some(d) => DataType::try_from(&return_value).map(|data_type| mem::discriminant(&data_type) == mem::discriminant(&d)).unwrap_or(true),
+                            Some(d) => is_value_type_valid(&return_value, &d),
                             None => return_value == LiteralType::Null,
                         };
 
@@ -495,4 +495,19 @@ fn evaluate_block(statements: &[Statement], global_vars: &mut HashMap<String, Va
     let result: Result<ControlFlow, EvaluateError> = evaluate_statements(statements, global_vars, vars, funcs, classes);
     vars.pop();
     result
+}
+
+fn is_value_type_valid(value: &LiteralType, data_type: &DataType) -> bool {
+    match (value, data_type) {
+        (LiteralType::Null, DataType::Nullable(_)) => true,
+        (v, DataType::Nullable(inner_type)) => is_value_type_valid(v, inner_type),
+
+        (LiteralType::Int(_), DataType::Int) => true,
+        (LiteralType::Float(_), DataType::Float) => true,
+        (LiteralType::String(_), DataType::String) => true,
+        (LiteralType::Bool(_), DataType::Bool) => true,
+        (LiteralType::Instance(_), DataType::Instance) => true,
+
+        _ => false,
+    }
 }
