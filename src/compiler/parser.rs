@@ -35,7 +35,7 @@ pub enum LiteralType {
     Float(f64),
     Bool(bool),
     Null,
-    Instance(Rc<RefCell<ClassData>>),
+    Instance(Rc<RefCell<InstanceData>>),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableData {
@@ -50,8 +50,13 @@ pub struct FunctionData {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassData {
-    pub vars: HashMap<String, VariableData>,
+    pub vars: HashMap<String, (DataType, Box<Expression>)>,
     pub funcs: HashMap<String, FunctionData>,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstanceData {
+    pub vars: HashMap<String, VariableData>,
+    pub class: Rc<ClassData>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {

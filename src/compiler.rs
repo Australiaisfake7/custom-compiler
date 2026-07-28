@@ -1,7 +1,6 @@
 use parser::{Statement, ClassData, FunctionData, VariableData};
 use lexer::Token;
-use evaluator::ControlFlow;
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 mod lexer;
 mod parser;
@@ -13,6 +12,6 @@ pub fn compile(source: &'static str) {
     let mut global_vars: HashMap<String, VariableData> = HashMap::new();
     let mut vars: Vec<HashMap<String, VariableData>> = Vec::new();
     let mut funcs: HashMap<String, FunctionData> = HashMap::new();
-    let mut classes: HashMap<String, ClassData> = HashMap::new();
+    let mut classes: HashMap<String, Rc<ClassData>> = HashMap::new();
     evaluator::evaluate_statements(&statements, &mut global_vars, &mut vars, &mut funcs, &mut classes).unwrap();
 }

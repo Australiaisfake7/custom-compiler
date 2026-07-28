@@ -1,5 +1,5 @@
-use std::{cell::RefCell, collections::HashMap, mem, rc::Rc};
-use crate::compiler::{lexer::DataType, parser::{ClassData, FunctionData, VariableData, BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
+use std::{collections::HashMap, mem, rc::Rc, cell::RefCell};
+use crate::compiler::{lexer::DataType, parser::{BinaryOp, ClassData, Expression, FunctionData, InstanceData, LiteralType, Statement, UnaryOp, VariableData}};
 
 #[derive(Debug)]
 pub enum EvaluateError {
@@ -9,6 +9,7 @@ pub enum EvaluateError {
     UndeclaredVariable(String),
     UndeclaredVariableInClass { class: Box<Expression>, variable: String },
     UndeclaredFunction(String),
+    UndeclaredFunctionInClass{ class: Box<Expression>, function: String },
     UndeclaredClass(String),
     UnexpectedCondition(LiteralType),
     UnexpectedVariableValueType { expected: DataType, recieved: LiteralType },
@@ -27,7 +28,7 @@ pub enum ControlFlow {
     Return(Option<LiteralType>),
     Continue,
 }
-pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
+pub fn evaluate_statements(statements: &[Statement], global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<ControlFlow, EvaluateError> {
     for statement in statements.iter() {
         match evaluate_statement(statement, global_vars, vars, funcs, classes)? {
             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
@@ -39,7 +40,7 @@ pub fn evaluate_statements(statements: &Vec<Statement>, global_vars: &mut HashMa
     Ok(ControlFlow::None)
 }
 
-fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<ControlFlow, EvaluateError> {
+fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<ControlFlow, EvaluateError> {
     match statement {
         Statement::Declaration { name: n, value: v , data_type: t} => {
             if vars.iter().any(|map| map.contains_key(n)) || global_vars.contains_key(n) {
@@ -64,17 +65,14 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             let _ = evaluate_expression(expr, global_vars, vars, funcs, classes)?;
             Ok(ControlFlow::None)
         },
-        Statement::Block(stmts) => {
-            vars.push(HashMap::new());
-            let result: Result<ControlFlow, EvaluateError> = evaluate_statements(stmts, global_vars, vars, funcs, classes);
-            vars.pop();
-            result
+        Statement::Block(statements) => {
+            evaluate_block(statements, global_vars, vars, funcs, classes)
         },
         Statement::If { condition: c, block} => {
             match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        match evaluate_statements(block, global_vars, vars, funcs, classes)? {
+                        match evaluate_block(block, global_vars, vars, funcs, classes)? {
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::Continue => return Ok(ControlFlow::Continue),
                             ControlFlow::None => (),
@@ -89,14 +87,14 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                 LiteralType::Bool(b) => {
                     if b {
-                        match evaluate_statements(block1, global_vars, vars, funcs, classes)? {
+                        match evaluate_block(block1, global_vars, vars, funcs, classes)? {
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::Continue => return Ok(ControlFlow::Continue),
                             ControlFlow::None => (),
                         }
                     }
                     else {
-                        match evaluate_statements(block2, global_vars, vars, funcs, classes)? {
+                        match evaluate_block(block2, global_vars, vars, funcs, classes)? {
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::Continue => return Ok(ControlFlow::Continue),
                             ControlFlow::None => (),
@@ -113,7 +111,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 match evaluate_expression(c, global_vars, vars, funcs, classes)? {
                     LiteralType::Bool(b) => {
                         if b {
-                            match evaluate_statements(block, global_vars, vars, funcs, classes)? {
+                            match evaluate_block(block, global_vars, vars, funcs, classes)? {
                                 ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                                 _ => (),
                             }
@@ -129,6 +127,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
             Ok(ControlFlow::None)
         },
         Statement::For {initializer: i, condition: c, update: u, block} => {
+            vars.push(HashMap::new());
             evaluate_statement(i, global_vars, vars, funcs, classes)?;
 
             loop {
@@ -138,8 +137,8 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 };
 
                 if bool_condition {
-                    match evaluate_statements(block, global_vars, vars, funcs, classes)? {
-                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                    match evaluate_block(block, global_vars, vars, funcs, classes)? {
+                        ControlFlow::Return(v) => { vars.pop(); return Ok(ControlFlow::Return(v)); },
                         _ => (),
                     }
                     evaluate_statement(u, global_vars, vars, funcs, classes)?;
@@ -148,6 +147,8 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                     break;
                 }
             }
+
+            vars.pop();
 
             Ok(ControlFlow::None)
         },
@@ -173,7 +174,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 return Err(EvaluateError::DeclarationInsideScope(statement.clone()));
             }
 
-            let mut class_vars: HashMap<String, VariableData> = HashMap::new();
+            let mut class_vars: HashMap<String, (DataType, Box<Expression>)> = HashMap::new();
             let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
 
             for statement in block {
@@ -183,13 +184,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                             return Err(EvaluateError::IdentifierShadowing(name.clone() + "." + n));
                         }
 
-                        let v: LiteralType = evaluate_expression(value, global_vars, &mut Vec::new(), funcs, classes)?;
-
-                        if DataType::try_from(&v).map(|t| mem::discriminant(&t) != mem::discriminant(data_type)).unwrap_or_else(|l| l != LiteralType::Null) {
-                            return Err(EvaluateError::UnexpectedVariableValueType { expected: data_type.clone(), recieved: v })
-                        }
-
-                        class_vars.insert(n.clone(), VariableData { data_type: data_type.clone(), value: v });
+                        class_vars.insert(n.clone(), (data_type.clone(), value.clone()));
                     },
                     Statement::Function { name: n, data } => {
                         if n == "new" || class_funcs.contains_key(n) {
@@ -202,7 +197,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                 }
             }
 
-            classes.insert(name.clone(), ClassData { vars: class_vars, funcs: class_funcs });
+            classes.insert(name.clone(), Rc::new(ClassData { vars: class_vars, funcs: class_funcs }));
 
             Ok(ControlFlow::None)
         },
@@ -210,7 +205,7 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
     }
 }
 
-fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, ClassData>) -> Result<LiteralType, EvaluateError> {
+fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<LiteralType, EvaluateError> {
     match expression {
         Expression::Literal(t) => Ok(t.clone()),
         Expression::Unary { operator: o, right: r} => evaluate_unary(o, &evaluate_expression(r, global_vars, vars, funcs, classes)?),
@@ -337,17 +332,30 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                                 return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: 0, got: parameters.len() });
                             }
 
-                            return Ok(LiteralType::Instance(Rc::new(RefCell::new(classes.get(name).unwrap().clone()))));
+                            let mut instance: InstanceData = InstanceData { vars: HashMap::with_capacity(classes.get(name).unwrap().vars.len()), class: classes.get(name).unwrap().clone() };
+
+                            let vars_iter: Vec<(String, (DataType, Box<Expression>))> = classes.get(name).unwrap().vars.iter().map(|(s, (d, e))| (s.clone(), (d.clone(), e.clone()))).collect::<Vec<(String, (DataType, Box<Expression>))>>();
+                            for var in vars_iter {
+                                let value: LiteralType = evaluate_expression(&var.1.1, global_vars, vars, funcs, classes)?;
+
+                                if DataType::try_from(&value).map(|data_type| data_type != var.1.0).unwrap_or_else(|literal_type| literal_type != LiteralType::Null) {
+                                    return Err(EvaluateError::UnexpectedVariableValueType { expected: var.1.0, recieved: value });
+                                }
+
+                                instance.vars.insert(var.0, VariableData { data_type: var.1.0, value });   
+                            }
+
+                            return Ok(LiteralType::Instance(Rc::new(RefCell::new(instance))));
                         }
                     }
                     let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(&class, global_vars, vars, funcs, classes);
                     if let Ok(LiteralType::Instance(data)) = evaluated {
-                        if !data.borrow().funcs.contains_key(member) {
-                            return Err(EvaluateError::UndeclaredVariableInClass { class: class.clone(), variable: member.clone() });
+                        if !data.borrow().class.funcs.contains_key(member) {
+                            return Err(EvaluateError::UndeclaredFunctionInClass { class: class.clone(), function: member.clone() });
                         }
                         
                         let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
-                        let func_data: FunctionData = data.borrow().funcs.get(member).unwrap().clone();
+                        let func_data: FunctionData = data.borrow().class.funcs.get(member).unwrap().clone();
 
                         func_vars.first_mut().unwrap().insert(
                             "this".to_owned(),
@@ -480,4 +488,11 @@ fn evaluate_binary(left: &LiteralType, operator: &BinaryOp, right: &LiteralType)
 
         (l, o, r) => Err(EvaluateError::UnexpectedBinaryOperands{ operands: (l, r), operator: o }),
     };
+}
+
+fn evaluate_block(statements: &[Statement], global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<ControlFlow, EvaluateError> {
+    vars.push(HashMap::new());
+    let result: Result<ControlFlow, EvaluateError> = evaluate_statements(statements, global_vars, vars, funcs, classes);
+    vars.pop();
+    result
 }
