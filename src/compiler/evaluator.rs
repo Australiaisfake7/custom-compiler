@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc, cell::RefCell};
+use std::{cell::RefCell, collections::{HashMap, hash_map}, rc::Rc};
 use crate::compiler::{lexer::DataType, parser::{BinaryOp, ClassData, Expression, FunctionData, InstanceData, LiteralType, Statement, UnaryOp, VariableData}};
 
 #[derive(Debug)]
@@ -336,20 +336,9 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                                 return Err(EvaluateError::UnexpectedParameterCount { callee: callee.clone(), expected: 0, got: parameters.len() });
                             }
 
-                            let mut instance: InstanceData = InstanceData { vars: HashMap::with_capacity(classes.get(name).unwrap().vars.len()), class: classes.get(name).unwrap().clone() };
+                            let class_data: Rc<ClassData> = Rc::clone(classes.get(name).unwrap());
 
-                            let vars_iter: Vec<(String, (DataType, Box<Expression>))> = classes.get(name).unwrap().vars.iter().map(|(s, (d, e))| (s.clone(), (d.clone(), e.clone()))).collect::<Vec<(String, (DataType, Box<Expression>))>>();
-                            for var in vars_iter {
-                                let value: LiteralType = evaluate_expression(&var.1.1, global_vars, vars, funcs, classes)?;
-
-                                if !is_value_type_valid(&value, &var.1.0) {
-                                    return Err(EvaluateError::UnexpectedVariableValueType { expected: var.1.0, recieved: value });
-                                }
-
-                                instance.vars.insert(var.0, VariableData { data_type: var.1.0, value });   
-                            }
-
-                            return Ok(LiteralType::Instance(Rc::new(RefCell::new(instance))));
+                            return instantiate_class(&class_data, global_vars, vars, funcs, classes)     
                         }
                     }
                     let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(&class, global_vars, vars, funcs, classes);
@@ -521,4 +510,32 @@ fn find_func(class: &Rc<ClassData>, func: &str) -> Option<Rc<FunctionData>> {
         find_func(parent, func)
     }
     else { None }
+}
+
+fn get_class_vars<'a>(class: &'a Rc<ClassData>) -> Vec<hash_map::Iter<'a, String, (DataType, Box<Expression>)>> {
+    let mut vars: Vec<hash_map::Iter<String, (DataType, Box<Expression>)>> = Vec::new();
+    if let Some(parent) = class.parent.as_ref() {
+        vars.append(&mut get_class_vars(parent));
+    }
+
+    vars.append(&mut vec![class.vars.iter()]);
+
+    vars
+}
+
+fn instantiate_class(class: &Rc<ClassData>, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<LiteralType, EvaluateError> {
+    let mut instance: InstanceData = InstanceData { vars: HashMap::new(), class: Rc::clone(class) };
+    let mut class_vars: Vec<hash_map::Iter<String, (DataType, Box<Expression>)>> = get_class_vars(class);
+
+    for (name, (data_type, expression)) in class_vars.into_iter().flatten() {
+        let value: LiteralType = evaluate_expression(expression, global_vars, vars, funcs, classes)?;
+
+        if !is_value_type_valid(&value, data_type) {
+            return Err(EvaluateError::UnexpectedVariableValueType { expected: data_type.clone(), recieved: value });
+        }
+
+        instance.vars.insert(name.clone(), VariableData { data_type: data_type.clone(), value });   
+    }
+
+    Ok(LiteralType::Instance(Rc::new(RefCell::new(instance))))
 }
