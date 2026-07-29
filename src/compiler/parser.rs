@@ -51,7 +51,8 @@ pub struct FunctionData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassData {
     pub vars: HashMap<String, (DataType, Box<Expression>)>,
-    pub funcs: HashMap<String, FunctionData>,
+    pub funcs: HashMap<String, Rc<FunctionData>>,
+    pub parent: Option<Rc<ClassData>>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstanceData {
@@ -96,7 +97,7 @@ pub enum Statement {
     For { initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement> },
     Function { name: String, data: FunctionData },
     Return(Option<Box<Expression>>),
-    Class { name: String, block: Vec<Statement> },
+    Class { name: String, block: Vec<Statement>, parent: Option<String> },
     Continue,
 }
 
@@ -435,12 +436,21 @@ impl Parser {
             Token::Identifier(i) => i.clone(),
             other => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: other.clone() }),
         };
+        let parent: Option<String> = if self.match_advance(&[Token::Colon]) {
+            match self.advance()? {
+                Token::Identifier(i) => Some(i.clone()),
+                other => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: other.clone() }),
+            }
+        }
+        else {
+            None
+        };
         if !self.match_advance(&[Token::LeftBrace]) {
             return Err(ParseError::UnexpectedToken { expected: "'{'", got: self.peek()?.clone() });
         }
 
         match self.block()? {
-            Statement::Block(b) => Ok(Statement::Class { name, block: b }),
+            Statement::Block(b) => Ok(Statement::Class { name, block: b, parent }),
             _ => unreachable!(),
         }
     }

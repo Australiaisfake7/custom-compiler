@@ -3,7 +3,7 @@ use std::str::Chars;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
-    Dot, Minus, Plus, Slash, Asterix, Semicolon,
+    Dot, Minus, Plus, Slash, Asterix, Semicolon, Colon,
 
     Identifier(String), String(String), Int(i64), Float(f64), Bool(bool),
 
@@ -90,6 +90,7 @@ impl<'a> Scanner<'a> {
             Some('/') => Ok(Token::Slash),
             Some('*') => Ok(Token::Asterix),
             Some(';') => Ok(Token::Semicolon),
+            Some(':') => Ok(Token::Colon),
             Some('=') => {
                 if self.match_advance('=') { Ok(Token::Equal) }
                 else { Ok(Token::Assign) }

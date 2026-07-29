@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem, rc::Rc, cell::RefCell};
+use std::{collections::HashMap, rc::Rc, cell::RefCell};
 use crate::compiler::{lexer::DataType, parser::{BinaryOp, ClassData, Expression, FunctionData, InstanceData, LiteralType, Statement, UnaryOp, VariableData}};
 
 #[derive(Debug)]
@@ -166,16 +166,20 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
         Statement::Return(expr) => {
             Ok(ControlFlow::Return(expr.as_ref().map(|e| evaluate_expression(e, global_vars, vars, funcs, classes)).transpose()?))
         },
-        Statement::Class { name, block } => {
+        Statement::Class { name, block, parent } => {
             if classes.contains_key(name) {
                 return Err(EvaluateError::IdentifierShadowing(name.clone()))
+            }
+            if parent.is_some() && !classes.contains_key(parent.as_ref().unwrap()) {
+                return Err(EvaluateError::UndeclaredClass(parent.as_ref().unwrap().clone()));
             }
             if vars.len() != 0 {
                 return Err(EvaluateError::DeclarationInsideScope(statement.clone()));
             }
 
             let mut class_vars: HashMap<String, (DataType, Box<Expression>)> = HashMap::new();
-            let mut class_funcs: HashMap<String, FunctionData> = HashMap::new();
+            let mut class_funcs: HashMap<String, Rc<FunctionData>> = HashMap::new();
+            let class_parent: Option<Rc<ClassData>> = parent.as_ref().map(|s| classes.get(s).unwrap().clone());
 
             for statement in block {
                 match statement {
@@ -191,13 +195,13 @@ fn evaluate_statement(statement: &Statement, global_vars: &mut HashMap<String, V
                             return Err(EvaluateError::IdentifierShadowing(name.clone() + "." + n));
                         }
 
-                        class_funcs.insert(n.clone(), data.clone());
+                        class_funcs.insert(n.clone(), Rc::new(data.clone()));
                     },
                     other => return Err(EvaluateError::UnexpectedStatementInClass { class: name.clone(), statement: other.clone() }),
                 }
             }
 
-            classes.insert(name.clone(), Rc::new(ClassData { vars: class_vars, funcs: class_funcs }));
+            classes.insert(name.clone(), Rc::new(ClassData { vars: class_vars, funcs: class_funcs, parent: class_parent }));
 
             Ok(ControlFlow::None)
         },
@@ -350,12 +354,11 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                     }
                     let evaluated: Result<LiteralType, EvaluateError> = evaluate_expression(&class, global_vars, vars, funcs, classes);
                     if let Ok(LiteralType::Instance(data)) = evaluated {
-                        if !data.borrow().class.funcs.contains_key(member) {
-                            return Err(EvaluateError::UndeclaredFunctionInClass { class: class.clone(), function: member.clone() });
-                        }
-                        
                         let mut func_vars: Vec<HashMap<String, VariableData>> = vec![HashMap::new()];
-                        let func_data: FunctionData = data.borrow().class.funcs.get(member).unwrap().clone();
+                        let func_data: Rc<FunctionData> = match find_func(&data.borrow().class, member) {
+                            Some(f) => f,
+                            None => return Err(EvaluateError::UndeclaredFunctionInClass { class: class.clone(), function: member.clone() }),
+                        };
 
                         func_vars.first_mut().unwrap().insert(
                             "this".to_owned(),
@@ -395,7 +398,7 @@ fn evaluate_expression(expression: &Expression, global_vars: &mut HashMap<String
                             Ok(return_value)
                         }
                         else {
-                            Err(EvaluateError::UnexpectedReturnValueType { expected: func_data.data_type, recieved: return_value })
+                            Err(EvaluateError::UnexpectedReturnValueType { expected: func_data.data_type.clone(), recieved: return_value })
                         }
                     }
                     else {
@@ -508,4 +511,14 @@ fn is_value_type_valid(value: &LiteralType, data_type: &DataType) -> bool {
 
         _ => false,
     }
+}
+
+fn find_func(class: &Rc<ClassData>, func: &str) -> Option<Rc<FunctionData>> {
+    if let Some(func) = class.funcs.get(func) {
+        Some(func.clone())
+    }
+    else if let Some(parent) = &class.parent {
+        find_func(parent, func)
+    }
+    else { None }
 }
