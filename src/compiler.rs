@@ -4,7 +4,7 @@ use std::{collections::HashMap, rc::Rc};
 
 mod lexer;
 mod parser;
-mod evaluator;
+mod ast_flattener;
 
 pub fn compile(source: &'static str) {
     let tokens: Vec<Token> = lexer::lex_chars(source.chars()).unwrap();
@@ -13,5 +13,4 @@ pub fn compile(source: &'static str) {
     let mut vars: Vec<HashMap<String, VariableData>> = Vec::new();
     let mut funcs: HashMap<String, FunctionData> = HashMap::new();
     let mut classes: HashMap<String, Rc<ClassData>> = HashMap::new();
-    evaluator::evaluate_statements(&statements, &mut global_vars, &mut vars, &mut funcs, &mut classes).unwrap();
 }
