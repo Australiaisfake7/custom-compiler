@@ -525,7 +525,7 @@ fn get_class_vars<'a>(class: &'a Rc<ClassData>) -> Vec<hash_map::Iter<'a, String
 
 fn instantiate_class(class: &Rc<ClassData>, global_vars: &mut HashMap<String, VariableData>, vars: &mut Vec<HashMap<String, VariableData>>, funcs: &mut HashMap<String, FunctionData>, classes: &mut HashMap<String, Rc<ClassData>>) -> Result<LiteralType, EvaluateError> {
     let mut instance: InstanceData = InstanceData { vars: HashMap::new(), class: Rc::clone(class) };
-    let mut class_vars: Vec<hash_map::Iter<String, (DataType, Box<Expression>)>> = get_class_vars(class);
+    let class_vars: Vec<hash_map::Iter<String, (DataType, Box<Expression>)>> = get_class_vars(class);
 
     for (name, (data_type, expression)) in class_vars.into_iter().flatten() {
         let value: LiteralType = evaluate_expression(expression, global_vars, vars, funcs, classes)?;

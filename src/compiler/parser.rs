@@ -21,7 +21,6 @@ pub enum BinaryOp {
     GreaterEqual,
     LAnd,
     LOr,
-    Assign,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
@@ -118,7 +117,6 @@ impl TryFrom<&Token> for BinaryOp {
             Token::GreaterEqual => Ok(BinaryOp::GreaterEqual),
             Token::LAnd => Ok(BinaryOp::LAnd),
             Token::LOr => Ok(BinaryOp::LOr),
-            Token::Assign => Ok(BinaryOp::Assign),
             _ => Err(token.clone()),
         }
     }
