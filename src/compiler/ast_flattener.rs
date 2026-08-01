@@ -1,9 +1,9 @@
 use std::{collections::HashMap, hash::Hash};
 
-use crate::compiler::{ast_flattener::OpCode::GetMember, parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp}};
+use crate::compiler::parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp};
 
 enum OpCode {
-    PushConst(LiteralType),
+    PushConst(LiteralType), Pop,
     PushScope, PopScope,
     LNot, Negate, Add, Subtract, Multiply, Divide,
     Equal, Greater, GreaterEqual, Less, LessEqual, NotEqual,
@@ -16,14 +16,11 @@ enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>),
 }
 
-fn flatten_statements(statements: &Vec<Statement>) -> Result<Vec<OpCode>, FlattenError> {
+fn flatten_statements(statements: &Vec<Statement>, vars: &mut HashMap<String, usize>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<Vec<OpCode>, FlattenError> {
     let mut opcodes: Vec<OpCode> = Vec::new();
-    let mut vars: HashMap<String, usize> = HashMap::new();
-    let mut funcs: HashMap<String, usize> = HashMap::new();
-    let mut classes: HashMap<String, usize> = HashMap::new();
 
     for statement in statements {
-        opcodes.append(&mut flatten_statement(statement, &mut vars, &mut funcs, &mut classes)?);
+        opcodes.append(&mut flatten_statement(statement, vars, funcs, classes)?);
     }
 
     Ok(opcodes)
@@ -31,8 +28,37 @@ fn flatten_statements(statements: &Vec<Statement>) -> Result<Vec<OpCode>, Flatte
 
 fn flatten_statement(statement: &Statement, vars: &mut HashMap<String, usize>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<Vec<OpCode>, FlattenError> {
     match statement {
-        Statement::Block(statements) => flatten_statements(statements),
+        Statement::Block(statements) => flatten_statements(statements, vars, funcs, classes),
         Statement::Expression(expression) => flatten_expression(expression, vars, funcs, classes),
+        Statement::If { condition, block } => {
+            let mut opcodes: Vec<OpCode> = flatten_expression(condition, vars, funcs, classes)?;
+
+            let start_index: usize = opcodes.len();
+            opcodes.push(OpCode::JumpIfFalse(0));
+
+            opcodes.append(&mut flatten_statements(block, vars, funcs, classes)?);
+            *opcodes.get_mut(start_index).unwrap() = OpCode::JumpIfFalse(opcodes.len() - 1);
+            opcodes.push(OpCode::Pop);
+
+            Ok(opcodes)
+        },
+        Statement::IfElse { condition, block1, block2 } => {
+            let mut opcodes: Vec<OpCode> = flatten_expression(condition, vars, funcs, classes)?;
+
+            let start_index_1: usize = opcodes.len();
+            opcodes.push(OpCode::JumpIfFalse(0));
+
+            opcodes.append(&mut flatten_statements(block1, vars, funcs, classes)?);
+            *opcodes.get_mut(start_index_1).unwrap() = OpCode::JumpIfFalse(opcodes.len() - 1);
+
+            let start_index_2: usize = opcodes.len();
+            opcodes.push(OpCode::JumpIfTrue(0));
+
+            opcodes.append(&mut flatten_statements(block2, vars, funcs, classes)?);
+            *opcodes.get_mut(start_index_2).unwrap() = OpCode::JumpIfTrue(opcodes.len() - 1);
+
+            Ok(opcodes)
+        }
     }
 }
 
