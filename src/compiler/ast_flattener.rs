@@ -37,7 +37,7 @@ fn flatten_statement(statement: &Statement, vars: &mut HashMap<String, usize>, f
             opcodes.push(OpCode::JumpIfFalse(0));
 
             opcodes.append(&mut flatten_statements(block, vars, funcs, classes)?);
-            *opcodes.get_mut(start_index).unwrap() = OpCode::JumpIfFalse(opcodes.len() - 1);
+            *opcodes.get_mut(start_index).unwrap() = OpCode::JumpIfFalse(opcodes.len());
             opcodes.push(OpCode::Pop);
 
             Ok(opcodes)
@@ -49,13 +49,13 @@ fn flatten_statement(statement: &Statement, vars: &mut HashMap<String, usize>, f
             opcodes.push(OpCode::JumpIfFalse(0));
 
             opcodes.append(&mut flatten_statements(block1, vars, funcs, classes)?);
-            *opcodes.get_mut(start_index_1).unwrap() = OpCode::JumpIfFalse(opcodes.len() - 1);
+            *opcodes.get_mut(start_index_1).unwrap() = OpCode::JumpIfFalse(opcodes.len());
 
             let start_index_2: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfTrue(0));
 
             opcodes.append(&mut flatten_statements(block2, vars, funcs, classes)?);
-            *opcodes.get_mut(start_index_2).unwrap() = OpCode::JumpIfTrue(opcodes.len() - 1);
+            *opcodes.get_mut(start_index_2).unwrap() = OpCode::JumpIfTrue(opcodes.len());
 
             Ok(opcodes)
         }
@@ -183,7 +183,7 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     let start_index: usize = opcodes.len();
     opcodes.push(if jump_on { OpCode::JumpIfTrue(0) } else { OpCode::JumpIfFalse(0) });
     opcodes.append(&mut flatten_expression(right, vars, funcs, classes)?);
-    *opcodes.get_mut(start_index).unwrap() = if jump_on { OpCode::JumpIfTrue(opcodes.len() - 1) } else { OpCode::JumpIfFalse(opcodes.len() - 1) };
+    *opcodes.get_mut(start_index).unwrap() = if jump_on { OpCode::JumpIfTrue(opcodes.len()) } else { OpCode::JumpIfFalse(opcodes.len()) };
 
     Ok(opcodes)
 }
