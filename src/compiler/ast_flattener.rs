@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use crate::compiler::parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp};
 
 enum OpCode {
-    PushConst(LiteralType), Pop,
-    PushScope, PopScope,
+    PushConst(LiteralType), Pop(usize),
     LNot, Negate, Add, Subtract, Multiply, Divide,
     Equal, Greater, GreaterEqual, Less, LessEqual, NotEqual,
     JumpIfTrue { index: usize, pop: bool }, JumpIfFalse {index: usize, pop: bool }, Jump(usize),
@@ -28,8 +27,16 @@ fn flatten_statements(statements: &Vec<Statement>, vars: &mut Vec<String>, funcs
 
 fn flatten_statement(statement: &Statement, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<Vec<OpCode>, FlattenError> {
     match statement {
-        Statement::Block(statements) => flatten_statements(statements, vars, funcs, classes),
-        Statement::Expression(expression) => { let mut opcodes: Vec<OpCode> = flatten_expression(expression, vars, funcs, classes)?; opcodes.push(OpCode::Pop); Ok(opcodes) },
+        Statement::Block(statements) => {
+            let start_index: usize = vars.len();
+            let mut opcodes: Vec<OpCode> = flatten_statements(statements, vars, funcs, classes)?;
+
+            opcodes.push(OpCode::Pop(vars.len() - start_index));
+            vars.truncate(start_index);
+
+            Ok(opcodes)
+        }
+        Statement::Expression(expression) => { let mut opcodes: Vec<OpCode> = flatten_expression(expression, vars, funcs, classes)?; opcodes.push(OpCode::Pop(1)); Ok(opcodes) },
         Statement::If { condition, block } => {
             let mut opcodes: Vec<OpCode> = flatten_expression(condition, vars, funcs, classes)?;
 
@@ -56,7 +63,7 @@ fn flatten_statement(statement: &Statement, vars: &mut Vec<String>, funcs: &mut 
             *opcodes.get_mut(start_index_2).unwrap() = OpCode::Jump(opcodes.len());
 
             Ok(opcodes)
-        }
+        },
     }
 }
 
