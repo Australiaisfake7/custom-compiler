@@ -8,26 +8,26 @@ enum OpCode {
     Equal, Greater, GreaterEqual, Less, LessEqual, NotEqual,
     JumpIfTrue { index: usize, pop: bool }, JumpIfFalse {index: usize, pop: bool }, Jump(usize),
     GetVar(usize), SetVar(usize),
-    Call { index: usize, paremeters: usize }, Return,
+    Call { index: usize, paremeters: usize }, Return, 
     GetMember(String), SetMember(String), CallMember { member: String, parameters: usize },
 }
 enum FlattenError {
-    UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>),
+    UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
 }
 
-fn flatten_statements(statements: &Vec<Statement>, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn flatten_statements(statements: &Vec<Statement>, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
     for statement in statements {
-        flatten_statement(statement, opcodes, vars, funcs, classes)?;
+        flatten_statement(statement, opcodes, vars, funcs, classes, loop_starts)?;
     }
 
     Ok(())
 }
 
-fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
             let start_index: usize = vars.len();
-            flatten_statements(statements, opcodes, vars, funcs, classes)?;
+            flatten_statements(statements, opcodes, vars, funcs, classes, loop_starts)?;
 
             opcodes.push(OpCode::Pop(vars.len() - start_index));
             vars.truncate(start_index);
@@ -39,7 +39,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             let start_index: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
 
-            flatten_statements(block, opcodes, vars, funcs, classes)?;
+            flatten_statements(block, opcodes, vars, funcs, classes, loop_starts)?;
             *opcodes.get_mut(start_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
         },
         Statement::IfElse { condition, block1, block2 } => {
@@ -47,23 +47,29 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
 
             let start_index_1: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
-            flatten_statements(block1, opcodes, vars, funcs, classes)?;
+            flatten_statements(block1, opcodes, vars, funcs, classes, loop_starts)?;
             
             let start_index_2: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
             *opcodes.get_mut(start_index_1).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
 
-            flatten_statements(block2, opcodes, vars, funcs, classes)?;
+            flatten_statements(block2, opcodes, vars, funcs, classes, loop_starts)?;
             *opcodes.get_mut(start_index_2).unwrap() = OpCode::Jump(opcodes.len());
         },
         Statement::Return(expression) => {
             match expression {
-                Some(e) => flatten_expression(e, opcodes, vars, funcs, classes),
-                None => flatten_expression(&Expression::Literal(LiteralType::Null), opcodes, vars, funcs, classes),
+                Some(e) => flatten_expression(e, opcodes, vars, funcs, classes)?,
+                None => flatten_expression(&Expression::Literal(LiteralType::Null), opcodes, vars, funcs, classes)?,
             };
 
             opcodes.push(OpCode::Return);
-        }
+        },
+        Statement::Continue => {
+            opcodes.push(OpCode::Jump(match loop_starts.last() {
+                Some(position) => position.clone(),
+                None => return Err(FlattenError::ContinueOutsideLoop)
+            }));
+        },
     };
 
     Ok(())
