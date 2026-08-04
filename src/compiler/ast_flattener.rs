@@ -56,6 +56,14 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             flatten_statements(block2, opcodes, vars, funcs, classes)?;
             *opcodes.get_mut(start_index_2).unwrap() = OpCode::Jump(opcodes.len());
         },
+        Statement::Return(expression) => {
+            match expression {
+                Some(e) => flatten_expression(e, opcodes, vars, funcs, classes),
+                None => flatten_expression(&Expression::Literal(LiteralType::Null), opcodes, vars, funcs, classes),
+            };
+
+            opcodes.push(OpCode::Return);
+        }
     };
 
     Ok(())
