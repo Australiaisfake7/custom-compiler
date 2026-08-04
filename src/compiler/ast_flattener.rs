@@ -69,6 +69,19 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             opcodes.push(OpCode::Pop(vars.len() - vars_len));
             opcodes.push(OpCode::Jump(start_index));
         },
+        Statement::While { condition, block } => {
+            let start_index: usize = opcodes.len();
+            flatten_expression(condition, opcodes, vars, funcs, classes)?;
+
+            let jump_index: usize = opcodes.len();
+            opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
+
+            loop_starts.push((start_index, vars.len()));
+            flatten_block(block, opcodes, vars, funcs, classes, loop_starts)?;
+            loop_starts.pop();
+
+            *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
+        }
     };
 
     Ok(())
