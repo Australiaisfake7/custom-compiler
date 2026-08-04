@@ -15,7 +15,7 @@ enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
 }
 
-fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
+fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>) -> Result<(), FlattenError> {
     for statement in statements {
         flatten_statement(statement, opcodes, vars, funcs, classes, loop_starts)?;
     }
@@ -23,7 +23,7 @@ fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars:
     Ok(())
 }
 
-fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
+fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
             flatten_block(statements, opcodes, vars, funcs, classes, loop_starts)?;
@@ -61,17 +61,20 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             opcodes.push(OpCode::Return);
         },
         Statement::Continue => {
-            opcodes.push(OpCode::Jump(match loop_starts.last() {
-                Some(position) => position.clone(),
-                None => return Err(FlattenError::ContinueOutsideLoop)
-            }));
+            let (start_index, vars_len) = match loop_starts.last() {
+                Some(loop_start) => (loop_start.0, loop_start.1),
+                None => return Err(FlattenError::ContinueOutsideLoop),
+            };
+
+            opcodes.push(OpCode::Pop(vars.len() - vars_len));
+            opcodes.push(OpCode::Jump(start_index));
         },
     };
 
     Ok(())
 }
 
-fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
+fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>) -> Result<(), FlattenError> {
     let start_index: usize = vars.len();
     flatten_statements(statements, opcodes, vars, funcs, classes, loop_starts)?;
 
