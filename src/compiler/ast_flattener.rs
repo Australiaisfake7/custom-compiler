@@ -15,7 +15,7 @@ enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
 }
 
-fn flatten_statements(statements: &Vec<Statement>, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
+fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
     for statement in statements {
         flatten_statement(statement, opcodes, vars, funcs, classes, loop_starts)?;
     }
@@ -26,11 +26,7 @@ fn flatten_statements(statements: &Vec<Statement>, opcodes: &mut Vec<OpCode>, va
 fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
-            let start_index: usize = vars.len();
-            flatten_statements(statements, opcodes, vars, funcs, classes, loop_starts)?;
-
-            opcodes.push(OpCode::Pop(vars.len() - start_index));
-            vars.truncate(start_index);
+            flatten_block(statements, opcodes, vars, funcs, classes, loop_starts)?;
         }
         Statement::Expression(expression) => { flatten_expression(expression, opcodes, vars, funcs, classes)?; opcodes.push(OpCode::Pop(1)); },
         Statement::If { condition, block } => {
@@ -39,7 +35,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             let start_index: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
 
-            flatten_statements(block, opcodes, vars, funcs, classes, loop_starts)?;
+            flatten_block(block, opcodes, vars, funcs, classes, loop_starts)?;
             *opcodes.get_mut(start_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
         },
         Statement::IfElse { condition, block1, block2 } => {
@@ -47,13 +43,13 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
 
             let start_index_1: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
-            flatten_statements(block1, opcodes, vars, funcs, classes, loop_starts)?;
-            
+            flatten_block(block1, opcodes, vars, funcs, classes, loop_starts)?;
+
             let start_index_2: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
             *opcodes.get_mut(start_index_1).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
 
-            flatten_statements(block2, opcodes, vars, funcs, classes, loop_starts)?;
+            flatten_block(block2, opcodes, vars, funcs, classes, loop_starts)?;
             *opcodes.get_mut(start_index_2).unwrap() = OpCode::Jump(opcodes.len());
         },
         Statement::Return(expression) => {
@@ -71,6 +67,16 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             }));
         },
     };
+
+    Ok(())
+}
+
+fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<usize>) -> Result<(), FlattenError> {
+    let start_index: usize = vars.len();
+    flatten_statements(statements, opcodes, vars, funcs, classes, loop_starts)?;
+
+    opcodes.push(OpCode::Pop(vars.len() - start_index));
+    vars.truncate(start_index);
 
     Ok(())
 }
