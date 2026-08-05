@@ -81,7 +81,33 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             loop_starts.pop();
 
             *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
-        }
+        },
+        Statement::For { initializer, condition, update, block } => {
+            let outer_vars_len: usize = vars.len();
+            flatten_statement(initializer, opcodes, vars, funcs, classes, loop_starts)?;
+            let inner_vars_len: usize = vars.len();
+
+            let skip_index: usize = opcodes.len();
+            opcodes.push(OpCode::Jump(0));
+
+            flatten_statement(update, opcodes, vars, funcs, classes, loop_starts)?;
+            
+            *opcodes.get_mut(skip_index).unwrap() = OpCode::Jump(opcodes.len());
+
+            flatten_expression(condition, opcodes, vars, funcs, classes)?;
+            let jump_index: usize = opcodes.len();
+            opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
+
+            loop_starts.push((skip_index + 1, inner_vars_len));
+            flatten_block(block, opcodes, vars, funcs, classes, loop_starts)?;
+            loop_starts.pop();
+
+            opcodes.push(OpCode::Jump(skip_index + 1));
+
+            *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
+            opcodes.push(OpCode::Pop(vars.len() - outer_vars_len));
+            vars.truncate(outer_vars_len);
+        },
     };
 
     Ok(())
