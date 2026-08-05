@@ -8,7 +8,7 @@ enum OpCode {
     Equal, Greater, GreaterEqual, Less, LessEqual, NotEqual,
     JumpIfTrue { index: usize, pop: bool }, JumpIfFalse {index: usize, pop: bool }, Jump(usize),
     GetVar(usize), SetVar(usize),
-    Call { index: usize, paremeters: usize }, Return, 
+    Call { index: usize, paremeters: usize }, Return, Print,
     GetMember(String), SetMember(String), CallMember { member: String, parameters: usize },
 }
 enum FlattenError {
@@ -108,6 +108,10 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
             opcodes.push(OpCode::Pop(vars.len() - outer_vars_len));
             vars.truncate(outer_vars_len);
         },
+        Statement::Print(expression) => {
+            flatten_expression(expression, opcodes, vars, funcs, classes)?;
+            opcodes.push(OpCode::Print);
+        }
     };
 
     Ok(())
