@@ -13,6 +13,7 @@ enum OpCode {
 }
 enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
+    Shadowing(String),
 }
 
 fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>) -> Result<(), FlattenError> {
@@ -111,7 +112,15 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, vars: &mu
         Statement::Print(expression) => {
             flatten_expression(expression, opcodes, vars, funcs, classes)?;
             opcodes.push(OpCode::Print);
-        }
+        },
+        Statement::Declaration { name, value, data_type } => {
+            if vars.iter().any(|s| s == name) {
+                return Err(FlattenError::Shadowing(name.clone()));
+            }
+
+            flatten_expression(value, opcodes, vars, funcs, classes)?;
+            vars.push(name.clone());
+        },
     };
 
     Ok(())
