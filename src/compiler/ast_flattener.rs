@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::compiler::parser::{BinaryOp, Expression, LiteralType, Statement, UnaryOp};
+use crate::compiler::{ast_flattener::OpCode::SetMember, parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp}};
 
 enum OpCode {
     PushConst(LiteralType), Pop(usize),
@@ -12,13 +12,21 @@ enum OpCode {
     Call { index: usize, paremeters: usize }, Return, Print,
     GetMember(String), SetMember(String), CallMember { member: String, parameters: usize },
     NewStack, PopStack,
+    NewInstance(String), Duplicate,
 }
 enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
-    Shadowing(String), FunctionDeclarationInsideScope(String),
+    Shadowing(String), FunctionDeclarationInsideScope(String), ClassDeclarationInsideScope(String), UnexpectedClassMember(Statement),
 }
 
-fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+struct CompiledClassData {
+    vars: Vec<String>,
+    funcs: HashMap<String, usize>,
+    parent: Option<String>,
+    constructor: usize,
+}
+
+fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
     for statement in statements {
         flatten_statement(statement, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
     }
@@ -26,7 +34,7 @@ fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, globa
     Ok(())
 }
 
-fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
             flatten_block(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
@@ -133,40 +141,65 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
         },
         Statement::Function { name, data } => {
             if depth != 0 {
-                return Err(FlattenError::FunctionDeclarationInsideScope(name.clone()))
+                return Err(FlattenError::FunctionDeclarationInsideScope(name.to_owned()))
             }
             if funcs.contains_key(name) {
+                return Err(FlattenError::Shadowing(name.to_owned())); 
+            }
+
+            funcs.insert(name.clone(), flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?);
+        },
+        Statement::Class { name, block, parent } => {
+            if depth != 0 {
+                return Err(FlattenError::ClassDeclarationInsideScope(name.clone()));
+            }
+            if classes.contains_key(name) {
                 return Err(FlattenError::Shadowing(name.clone()));
             }
 
+            let class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: 0 };
+            classes.insert(name.clone(), class);
+
             let jump_index: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
+            opcodes.push(OpCode::NewStack);
+            opcodes.push(OpCode::NewInstance(name.clone()));
 
-            funcs.insert(name.clone(), opcodes.len());
-            let mut func_vars: Vec<String> = Vec::new();
+            for member in block {
+                match member {
+                    Statement::Declaration { name: var_name, value, data_type: _ } => {
+                        if classes.get(name).unwrap().vars.iter().any(|s| s == var_name) {
+                            return Err(FlattenError::Shadowing(var_name.clone()));
+                        }
 
-            for (_d, s) in &data.parameters {
-                if func_vars.iter().any(|var| var == s) {
-                    return Err(FlattenError::Shadowing(s.clone()));
+                        classes.get_mut(name).unwrap().vars.push(var_name.clone());
+                        opcodes.push(OpCode::Duplicate);
+                        flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+                        opcodes.push(SetMember(var_name.clone()));
+                        opcodes.push(OpCode::Pop(1));
+                    },
+                    Statement::Function { name: func_name, data } => {
+                        if classes.get(name).unwrap().funcs.contains_key(func_name) {
+                            return Err(FlattenError::Shadowing(func_name.clone()));
+                        }
+
+                        classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?);
+                    },
+                    statement => return Err(FlattenError::UnexpectedClassMember(statement.clone())),
                 }
-                func_vars.push(s.clone());
             }
 
-            opcodes.push(OpCode::NewStack);
-
-            flatten_block(&data.block, opcodes, global_vars, &mut func_vars, funcs, classes, loop_starts, depth)?;
-            flatten_expression(&Expression::Literal(LiteralType::Null), opcodes, global_vars, &mut func_vars, funcs, classes)?;
             opcodes.push(OpCode::PopStack);
             opcodes.push(OpCode::Return);
-
             *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
-        },
+            classes.get_mut(name).unwrap().constructor = jump_index + 1;
+        }
     };
 
     Ok(())
 }
 
-fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
     let start_index: usize = vars.len();
     flatten_statements(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth + 1)?;
 
@@ -176,15 +209,14 @@ fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_var
     Ok(())
 }
 
-fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>) -> Result<(), FlattenError> {
     match expression {
         Expression::Unary { operator, right } => flatten_unary(operator, right, opcodes, global_vars, vars, funcs, classes)?,
         Expression::Binary { left, operator, right } => flatten_binary(left, operator, right, opcodes, global_vars, vars, funcs, classes)?,
         Expression::Assignment { target, value } => {
-            flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
-
             match &**target {
                 Expression::Variable(i) => {
+                    flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
                     opcodes.push(match vars.iter().rposition(|s| s == i) {
                         Some(index) => OpCode::SetVar(index),
                         None => match global_vars.iter().rposition(|s| s == i) {
@@ -195,6 +227,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                 },
                 Expression::MemberAccess { class, member } => {
                     flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
+                    flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
                     opcodes.push(OpCode::SetMember(member.clone()));
                 }
                 _ => unreachable!(),
@@ -244,7 +277,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
     Ok(())
 }
 
-fn flatten_unary(operator: &UnaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn flatten_unary(operator: &UnaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>) -> Result<(), FlattenError> {
     flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
     
     opcodes.push(match operator {
@@ -255,7 +288,7 @@ fn flatten_unary(operator: &UnaryOp, right: &Box<Expression>, opcodes: &mut Vec<
     Ok(())
 }
 
-fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>) -> Result<(), FlattenError> {
     match operator {
         BinaryOp::Add => normal_binary(left, right, OpCode::Add, opcodes, global_vars, vars, funcs, classes)?,
         BinaryOp::Subtract => normal_binary(left, right, OpCode::Subtract, opcodes, global_vars, vars, funcs, classes)?,
@@ -278,7 +311,7 @@ fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expre
     Ok(())
 }
 
-fn normal_binary(left: &Box<Expression>, right: &Box<Expression>, opcode: OpCode, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn normal_binary(left: &Box<Expression>, right: &Box<Expression>, opcode: OpCode, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>) -> Result<(), FlattenError> {
     flatten_expression(left, opcodes, global_vars, vars, funcs, classes)?;
     flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
     opcodes.push(opcode);
@@ -286,7 +319,7 @@ fn normal_binary(left: &Box<Expression>, right: &Box<Expression>, opcode: OpCode
     Ok(())
 }
 
-fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on: bool, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, usize>) -> Result<(), FlattenError> {
+fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on: bool, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>) -> Result<(), FlattenError> {
     flatten_expression(left, opcodes, global_vars, vars, funcs, classes)?;
 
     let start_index: usize = opcodes.len();
@@ -296,4 +329,29 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     *opcodes.get_mut(start_index).unwrap() = if jump_on { OpCode::JumpIfTrue { index: opcodes.len(), pop: false } } else { OpCode::JumpIfFalse { index: opcodes.len(), pop: false } };
 
     Ok(())
+}
+
+fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<usize, FlattenError> {
+    let jump_index: usize = opcodes.len();
+    opcodes.push(OpCode::Jump(0));
+
+    let mut func_vars: Vec<String> = Vec::new();
+
+    for (_d, s) in &data.parameters {
+        if func_vars.iter().any(|var| var == s) {
+            return Err(FlattenError::Shadowing(s.clone()));
+        }
+        func_vars.push(s.clone());
+    }
+
+    opcodes.push(OpCode::NewStack);
+
+    flatten_block(&data.block, opcodes, global_vars, &mut func_vars, funcs, classes, loop_starts, depth)?;
+    flatten_expression(&Expression::Literal(LiteralType::Null), opcodes, global_vars, &mut func_vars, funcs, classes)?;
+    opcodes.push(OpCode::PopStack);
+    opcodes.push(OpCode::Return);
+
+    *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
+
+    Ok(jump_index + 1)
 }
