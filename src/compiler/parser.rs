@@ -107,7 +107,7 @@ impl TryFrom<&Token> for BinaryOp {
         return match token {
             Token::Plus => Ok(BinaryOp::Add),
             Token::Minus => Ok(BinaryOp::Subtract),
-            Token::Asterix => Ok(BinaryOp::Multiply),
+            Token::Asterisk => Ok(BinaryOp::Multiply),
             Token::Slash => Ok(BinaryOp::Divide),
             Token::Equal => Ok(BinaryOp::Equal),
             Token::NotEqual => Ok(BinaryOp::NotEqual),
@@ -591,7 +591,7 @@ impl Parser {
     fn factor(&mut self) -> Result<Box<Expression>, ParseError> {
         let mut expr: Box<Expression> = self.unary()?;
 
-        while self.match_advance(&[Token::Asterix, Token::Slash]) {
+        while self.match_advance(&[Token::Asterisk, Token::Slash]) {
             let op: BinaryOp = match BinaryOp::try_from(self.previous()?) {
                 Ok(op) => op,
                 Err(token) => {

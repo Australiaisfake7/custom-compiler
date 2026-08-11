@@ -3,7 +3,7 @@ use std::str::Chars;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LeftBracket, RightBracket, LeftBrace, RightBrace,
-    Dot, Minus, Plus, Slash, Asterix, Semicolon, Colon,
+    Dot, Minus, Plus, Slash, Asterisk, Semicolon, Colon,
 
     Identifier(String), String(String), Int(i64), Float(f64), Bool(bool),
 

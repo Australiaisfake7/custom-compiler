@@ -6,10 +6,10 @@ enum OpCode {
     PushConst(LiteralType), Pop(usize),
     LNot, Negate, Add, Subtract, Multiply, Divide,
     Equal, Greater, GreaterEqual, Less, LessEqual, NotEqual,
-    JumpIfTrue { index: usize, pop: bool }, JumpIfFalse {index: usize, pop: bool }, Jump(usize),
+    JumpIfTrue { index: usize, pop: bool }, JumpIfFalse { index: usize, pop: bool }, Jump(usize),
     GetVar(usize), SetVar(usize),
     GetGlobal(usize), SetGlobal(usize), DefineGlobal,
-    Call { index: usize, paremeters: usize }, Return, Print,
+    Call { index: usize, parameters: usize }, Return, Print,
     GetMember(String), SetMember(String), CallMember { member: String, parameters: usize },
     NewStack, PopStack,
     NewInstance(String), Duplicate,
@@ -244,7 +244,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                     for parameter in parameters {
                         flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
                     }
-                    opcodes.push(OpCode::Call { index: funcs.get(i).unwrap().clone(), paremeters: parameters.len() });
+                    opcodes.push(OpCode::Call { index: funcs.get(i).unwrap().clone(), parameters: parameters.len() });
                 },
                 Expression::MemberAccess { class, member } => {
                     flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
