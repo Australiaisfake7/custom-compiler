@@ -96,13 +96,13 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
         },
         Statement::For { initializer, condition, update, block } => {
             let outer_vars_len: usize = vars.len();
-            flatten_statement(initializer, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
+            flatten_statement(initializer, opcodes, global_vars, vars, funcs, classes, loop_starts, depth + 1)?;
             let inner_vars_len: usize = vars.len();
 
             let skip_index: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
 
-            flatten_statement(update, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
+            flatten_statement(update, opcodes, global_vars, vars, funcs, classes, loop_starts, depth + 1)?;
             
             *opcodes.get_mut(skip_index).unwrap() = OpCode::Jump(opcodes.len());
 
