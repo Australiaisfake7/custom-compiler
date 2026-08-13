@@ -147,7 +147,8 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 return Err(FlattenError::Shadowing(name.to_owned())); 
             }
 
-            funcs.insert(name.clone(), flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?);
+            let index: usize = flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+            funcs.insert(name.clone(), index);
         },
         Statement::Class { name, block, parent } => {
             if depth != 0 {
@@ -183,7 +184,8 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                             return Err(FlattenError::Shadowing(func_name.clone()));
                         }
 
-                        classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?);
+                        let index: usize = flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+                        classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), index);
                     },
                     statement => return Err(FlattenError::UnexpectedClassMember(statement.clone())),
                 }
