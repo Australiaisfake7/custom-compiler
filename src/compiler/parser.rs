@@ -97,7 +97,7 @@ pub enum Statement {
     Function { name: String, data: FunctionData },
     Return(Option<Box<Expression>>),
     Class { name: String, block: Vec<Statement>, parent: Option<String> },
-    Continue,
+    Continue, Break,
 }
 
 impl TryFrom<&Token> for BinaryOp {
@@ -226,6 +226,9 @@ impl Parser {
         }
         if self.match_advance(&[Token::Continue]) {
             return self.continue_statement();
+        }
+        if self.match_advance(&[Token::Break]) {
+            return self.break_statement();
         }
 
         let expr: Box<Expression> = self.expression()?;
@@ -458,6 +461,13 @@ impl Parser {
         }
 
         Ok(Statement::Continue)
+    }
+    fn break_statement(&mut self) -> Result<Statement, ParseError> {
+        if !self.match_advance(&[Token::Semicolon]) {
+            return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
+        }
+
+        Ok(Statement::Break)
     }
     fn optional_expression(&mut self) -> Result<Option<Box<Expression>>, ParseError> {
         match self.peek()? {

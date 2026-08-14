@@ -15,7 +15,7 @@ enum OpCode {
     NewInstance(String), Duplicate,
 }
 enum FlattenError {
-    UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop,
+    UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop, BreakOutsideLoop,
     Shadowing(String), FunctionDeclarationInsideScope(String), ClassDeclarationInsideScope(String), UnexpectedClassMember(Statement),
 }
 
@@ -26,7 +26,7 @@ struct CompiledClassData {
     constructor: usize,
 }
 
-fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     for statement in statements {
         flatten_statement(statement, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
     }
@@ -34,7 +34,7 @@ fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, globa
     Ok(())
 }
 
-fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
             flatten_block(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
@@ -81,6 +81,15 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             opcodes.push(OpCode::Pop(vars.len() - vars_len));
             opcodes.push(OpCode::Jump(start_index));
         },
+        Statement::Break => {
+            if loop_starts.len() == 0 {
+                return Err(FlattenError::BreakOutsideLoop);
+            }
+
+            opcodes.push(OpCode::Pop(vars.len() - loop_starts.last_mut().unwrap().1));
+            loop_starts.last_mut().unwrap().2.push(opcodes.len());
+            opcodes.push(OpCode::Jump(0));
+        }
         Statement::While { condition, block } => {
             let start_index: usize = opcodes.len();
             flatten_expression(condition, opcodes, global_vars, vars, funcs, classes)?;
@@ -88,11 +97,15 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             let jump_index: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
 
-            loop_starts.push((start_index, vars.len()));
+            loop_starts.push((start_index, vars.len(), Vec::new()));
             flatten_block(block, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
-            loop_starts.pop();
+            let (_, _, unpatched_breaks) = loop_starts.pop().unwrap();
 
             *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
+
+            for index in unpatched_breaks {
+                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len());
+            }
         },
         Statement::For { initializer, condition, update, block } => {
             let outer_vars_len: usize = vars.len();
@@ -110,15 +123,19 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             let jump_index: usize = opcodes.len();
             opcodes.push(OpCode::JumpIfFalse { index: 0, pop: true });
 
-            loop_starts.push((skip_index + 1, inner_vars_len));
+            loop_starts.push((skip_index + 1, inner_vars_len, Vec::new()));
             flatten_block(block, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
-            loop_starts.pop();
+            let (_, _, unpatched_breaks) = loop_starts.pop().unwrap();
 
             opcodes.push(OpCode::Jump(skip_index + 1));
 
             *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
             opcodes.push(OpCode::Pop(vars.len() - outer_vars_len));
             vars.truncate(outer_vars_len);
+
+            for index in unpatched_breaks {
+                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len());
+            }
         },
         Statement::Print(expression) => {
             flatten_expression(expression, opcodes, global_vars, vars, funcs, classes)?;
@@ -201,7 +218,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
     Ok(())
 }
 
-fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     let start_index: usize = vars.len();
     flatten_statements(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth + 1)?;
 
@@ -333,7 +350,7 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     Ok(())
 }
 
-fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize)>, depth: usize) -> Result<usize, FlattenError> {
+fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<usize, FlattenError> {
     let jump_index: usize = opcodes.len();
     opcodes.push(OpCode::Jump(0));
 

@@ -12,7 +12,7 @@ pub enum Token {
 
     Let, Print, Fun, DataType(DataType), Nullable, Null,
 
-    If, Else, For, While, Class, Return, Continue,
+    If, Else, For, While, Class, Return, Continue, Break,
 
     EOF,
 }
@@ -88,7 +88,7 @@ impl<'a> Scanner<'a> {
             Some('-') => Ok(Token::Minus),
             Some('+') => Ok(Token::Plus),
             Some('/') => Ok(Token::Slash),
-            Some('*') => Ok(Token::Asterix),
+            Some('*') => Ok(Token::Asterisk),
             Some(';') => Ok(Token::Semicolon),
             Some(':') => Ok(Token::Colon),
             Some('=') => {
@@ -200,6 +200,7 @@ impl<'a> Scanner<'a> {
                     "fun" => Token::Fun,
                     "return" => Token::Return,
                     "continue" => Token::Continue,
+                    "break" => Token::Break,
                     _ => Token::Identifier(s),
                 })
             },
