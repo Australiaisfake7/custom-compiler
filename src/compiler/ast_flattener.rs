@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::compiler::{ast_flattener::OpCode::SetMember, parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp}};
+use crate::compiler::parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp};
 
 enum OpCode {
     PushConst(LiteralType), Pop(usize),
@@ -12,7 +12,7 @@ enum OpCode {
     Call { index: usize, parameters: usize }, Return, Print,
     GetMember(String), SetMember(String), CallMember { member: String, parameters: usize },
     NewStack, PopStack,
-    NewInstance(String), Duplicate,
+    NewInstance(String), 
 }
 enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop, BreakOutsideLoop,
@@ -175,13 +175,28 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 return Err(FlattenError::Shadowing(name.clone()));
             }
 
-            let class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: 0 };
+            let mut class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: 0 };
+
+            if let Some(n) = parent {
+                if let Some(p) = classes.get(n) {
+                    class.vars = p.vars.clone();
+                    class.funcs = p.funcs.clone();
+                }
+            }
+
             classes.insert(name.clone(), class);
 
             let jump_index: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
             opcodes.push(OpCode::NewStack);
-            opcodes.push(OpCode::NewInstance(name.clone()));
+
+            if let Some(n) = parent {
+                if let Some(p) = classes.get(n) {
+                    opcodes.push(OpCode::GetVar(0));
+                    opcodes.push(OpCode::Call { index: p.constructor, parameters: 0 });
+                    opcodes.push(OpCode::Pop(1));
+                }
+            }
 
             for member in block {
                 match member {
@@ -190,10 +205,9 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                             return Err(FlattenError::Shadowing(var_name.clone()));
                         }
 
-                        classes.get_mut(name).unwrap().vars.push(var_name.clone());
-                        opcodes.push(OpCode::Duplicate);
+                        opcodes.push(OpCode::GetVar(0));
                         flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
-                        opcodes.push(SetMember(var_name.clone()));
+                        opcodes.push(OpCode::SetMember(var_name.clone()));
                         opcodes.push(OpCode::Pop(1));
                     },
                     Statement::Function { name: func_name, data } => {
@@ -208,6 +222,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 }
             }
 
+            opcodes.push(OpCode::GetVar(0));
             opcodes.push(OpCode::PopStack);
             opcodes.push(OpCode::Return);
             *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
