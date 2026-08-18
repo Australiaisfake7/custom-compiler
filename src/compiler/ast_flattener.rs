@@ -271,14 +271,24 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
         Expression::Call { callee, parameters } => {
             match &**callee {
                 Expression::Variable(i) => {
-                    if !funcs.contains_key(i) {
+                    if funcs.contains_key(i) {
+                        for parameter in parameters {
+                            flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                        }
+
+                        opcodes.push(OpCode::Call { index: funcs.get(i).unwrap().clone(), parameters: parameters.len() });
+                    }
+                    else if classes.contains_key(i) {
+                        opcodes.push(OpCode::NewInstance(i.clone()));
+                        for parameter in parameters {
+                            flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                        }
+
+                        opcodes.push(OpCode::Call { index: classes.get(i).unwrap().constructor, parameters: parameters.len() });
+                    }
+                    else {
                         return Err(FlattenError::UndeclaredFunction(i.clone()));
                     }
-
-                    for parameter in parameters {
-                        flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
-                    }
-                    opcodes.push(OpCode::Call { index: funcs.get(i).unwrap().clone(), parameters: parameters.len() });
                 },
                 Expression::MemberAccess { class, member } => {
                     flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
