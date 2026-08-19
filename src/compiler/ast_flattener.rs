@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::compiler::parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp};
+use crate::compiler::{ast_flattener::OpCode::Jump, parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp}};
 
 enum OpCode {
     PushConst(LiteralType), Pop(usize),
@@ -101,6 +101,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             flatten_block(block, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
             let (_, _, unpatched_breaks) = loop_starts.pop().unwrap();
 
+            opcodes.push(OpCode::Jump(start_index));
             *opcodes.get_mut(jump_index).unwrap() = OpCode::JumpIfFalse { index: opcodes.len(), pop: true };
 
             for index in unpatched_breaks {
