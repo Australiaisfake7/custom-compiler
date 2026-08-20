@@ -165,8 +165,9 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 return Err(FlattenError::Shadowing(name.to_owned())); 
             }
 
-            let index: usize = flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+            let index: usize = opcodes.len() + 1;
             funcs.insert(name.clone(), index);
+            flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
         },
         Statement::Class { name, block, parent } => {
             if depth != 0 {
@@ -216,7 +217,8 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                             return Err(FlattenError::Shadowing(func_name.clone()));
                         }
 
-                        let index: usize = flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+                        let index: usize = opcodes.len() + 1;
+                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
                         classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), index);
                     },
                     statement => return Err(FlattenError::UnexpectedClassMember(statement.clone())),
@@ -376,7 +378,7 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     Ok(())
 }
 
-fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<usize, FlattenError> {
+fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     let jump_index: usize = opcodes.len();
     opcodes.push(OpCode::Jump(0));
 
