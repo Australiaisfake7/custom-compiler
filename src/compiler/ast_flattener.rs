@@ -211,6 +211,8 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                         flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
                         opcodes.push(OpCode::SetMember(var_name.clone()));
                         opcodes.push(OpCode::Pop(1));
+
+                        classes.get_mut(name).unwrap().vars.push(var_name.clone());
                     },
                     Statement::Function { name: func_name, data } => {
                         if classes.get(name).unwrap().funcs.contains_key(func_name) {
