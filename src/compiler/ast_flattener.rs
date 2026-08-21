@@ -167,7 +167,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
 
             let index: usize = opcodes.len() + 1;
             funcs.insert(name.clone(), index);
-            flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+            flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, false)?;
         },
         Statement::Class { name, block, parent } => {
             if depth != 0 {
@@ -223,7 +223,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                         }
 
                         let index: usize = opcodes.len() + 1;
-                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth)?;
+                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, true)?;
                         classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), index);
                     },
                     statement => return Err(FlattenError::UnexpectedClassMember(statement.clone())),
@@ -382,11 +382,15 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     Ok(())
 }
 
-fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, CompiledClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize, is_class_function: bool) -> Result<(), FlattenError> {
     let jump_index: usize = opcodes.len();
     opcodes.push(OpCode::Jump(0));
 
     let mut func_vars: Vec<String> = Vec::new();
+
+    if is_class_function {
+        func_vars.push("this".to_owned());
+    }
 
     for (_d, s) in &data.parameters {
         if func_vars.iter().any(|var| var == s) {
