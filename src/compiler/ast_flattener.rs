@@ -15,7 +15,7 @@ enum OpCode {
     NewInstance(String), 
 }
 enum FlattenError {
-    UndeclaredVariable(String), UndeclaredFunction(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop, BreakOutsideLoop,
+    UndeclaredVariable(String), UndeclaredFunction(String), UndeclaredClass(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop, BreakOutsideLoop,
     Shadowing(String), FunctionDeclarationInsideScope(String), ClassDeclarationInsideScope(String), UnexpectedClassMember(Statement),
 }
 
@@ -183,6 +183,9 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 if let Some(p) = classes.get(n) {
                     class.vars = p.vars.clone();
                     class.funcs = p.funcs.clone();
+                }
+                else {
+                    return Err(FlattenError::UndeclaredClass(n.clone()));
                 }
             }
 
