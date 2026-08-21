@@ -405,5 +405,5 @@ fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars:
 
     *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
 
-    Ok(jump_index + 1)
+    Ok(())
 }
