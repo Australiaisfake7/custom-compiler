@@ -10,7 +10,7 @@ pub enum Token {
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot,
 
-    Let, Print, Fun, DataType(DataType), Nullable, Null,
+    Let, Print, Fun, DataType(DataType), Nullable, Null, Override,
 
     If, Else, For, While, Class, Return, Continue, Break,
 
@@ -201,6 +201,7 @@ impl<'a> Scanner<'a> {
                     "return" => Token::Return,
                     "continue" => Token::Continue,
                     "break" => Token::Break,
+                    "override" => Token::Override,
                     _ => Token::Identifier(s),
                 })
             },

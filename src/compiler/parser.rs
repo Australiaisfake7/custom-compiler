@@ -34,7 +34,6 @@ pub enum LiteralType {
     Float(f64),
     Bool(bool),
     Null,
-    Instance(Rc<RefCell<InstanceData>>),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableData {
@@ -46,17 +45,6 @@ pub struct FunctionData {
     pub data_type: Option<DataType>,
     pub parameters: Vec<(DataType, String)>,
     pub block: Vec<Statement>,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClassData {
-    pub vars: HashMap<String, (DataType, Box<Expression>)>,
-    pub funcs: HashMap<String, Rc<FunctionData>>,
-    pub parent: Option<Rc<ClassData>>,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct InstanceData {
-    pub vars: HashMap<String, VariableData>,
-    pub class: Rc<ClassData>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
@@ -94,7 +82,7 @@ pub enum Statement {
     Print(Box<Expression>),
     While { condition: Box<Expression>, block: Vec<Statement> },
     For { initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement> },
-    Function { name: String, data: FunctionData },
+    Function { name: String, data: FunctionData, should_override: bool },
     Return(Option<Box<Expression>>),
     Class { name: String, block: Vec<Statement>, parent: Option<String> },
     Continue, Break,
@@ -368,6 +356,8 @@ impl Parser {
         Ok(Statement::For { initializer: Box::new(initializer), condition, update: Box::new(update), block })
     }
     fn function(&mut self) -> Result<Statement, ParseError> {
+        let should_override: bool = self.match_advance(&[Token::Override]);
+
         let data_type: Option<DataType> = match self.peek()?.clone() {
             Token::DataType(d) => { self.advance()?; Some(d) },
             Token::Identifier(_) => None,
@@ -405,7 +395,7 @@ impl Parser {
             _ => unreachable!(),
         };
 
-        Ok(Statement::Function { name, data: FunctionData { data_type, parameters, block}})
+        Ok(Statement::Function { name, data: FunctionData { data_type, parameters, block }, should_override})
     }
     fn parameter(&mut self) -> Result<(DataType, String), ParseError> {
         let d: DataType = match self.advance()? {
