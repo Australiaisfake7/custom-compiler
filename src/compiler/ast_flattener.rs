@@ -135,7 +135,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             vars.truncate(outer_vars_len);
 
             for index in unpatched_breaks {
-                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len());
+                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len() - 1);
             }
         },
         Statement::Print(expression) => {
@@ -178,7 +178,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             }
 
             let jump_index: usize = opcodes.len();
-            let mut class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: jump_index };
+            let mut class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: jump_index + 1 };
 
             if let Some(n) = parent {
                 if let Some(p) = classes.get(n) {
@@ -234,7 +234,6 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             opcodes.push(OpCode::PopStack);
             opcodes.push(OpCode::Return);
             *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
-            classes.get_mut(name).unwrap().constructor = jump_index + 1;
         }
     };
 
