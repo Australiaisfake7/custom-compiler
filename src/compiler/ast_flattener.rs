@@ -177,7 +177,8 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 return Err(FlattenError::Shadowing(name.clone()));
             }
 
-            let mut class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: 0 };
+            let jump_index: usize = opcodes.len();
+            let mut class: CompiledClassData = CompiledClassData { vars: Vec::new(), funcs: HashMap::new(), parent: parent.clone(), constructor: jump_index };
 
             if let Some(n) = parent {
                 if let Some(p) = classes.get(n) {
@@ -191,7 +192,6 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
 
             classes.insert(name.clone(), class);
 
-            let jump_index: usize = opcodes.len();
             opcodes.push(OpCode::Jump(0));
             opcodes.push(OpCode::NewStack);
 
