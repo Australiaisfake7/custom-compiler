@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::compiler::parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp};
+use crate::compiler::{lexer::DataType, parser::{BinaryOp, Expression, FunctionData, LiteralType, Statement, UnaryOp}};
 
+#[derive(Clone)]
 enum OpCode {
     PushConst(LiteralType), Pop(usize),
     LNot, Negate, Add, Subtract, Multiply, Divide,
@@ -17,14 +18,17 @@ enum OpCode {
 enum FlattenError {
     UndeclaredVariable(String), UndeclaredFunction(String), UndeclaredClass(String), InvalidFunctionCallee(Box<Expression>), ContinueOutsideLoop, BreakOutsideLoop,
     Shadowing(String), FunctionDeclarationInsideScope(String), ClassDeclarationInsideScope(String), UnexpectedClassMember(Statement), UnexpectedOverride(String),
+    UndeclaredClassVar(String),
+    UnexpectedBinaryOpOpCode(OpCode), UnexpectedBinaryOpOperands { left: DataType, operator: BinaryOp, right: DataType }, UnexpectedParameterCount { callee: Box<Expression>, expected: usize, recieved: usize },
+    ExpressionIsNotClass(Box<Expression>), StaticOutsideClass(String), UnexpectedParameterType { callee: Box<Expression>, expected: DataType, recieved: DataType },
 }
 struct ClassData {
-    vars: Vec<String>,
-    funcs: HashMap<String, (usize, bool)>,
+    vars: Vec<(String, DataType)>,
+    funcs: HashMap<String, (usize, Option<DataType>, Vec<DataType>, bool)>,
     parent: Option<String>,
     constructor: usize,
 }
-fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<(String, DataType)>, vars: &mut Vec<(String, DataType)>, funcs: &mut HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     for statement in statements {
         flatten_statement(statement, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
     }
@@ -32,7 +36,7 @@ fn flatten_statements(statements: &[Statement], opcodes: &mut Vec<OpCode>, globa
     Ok(())
 }
 
-fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<(String, DataType)>, vars: &mut Vec<(String, DataType)>, funcs: &mut HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     match statement {
         Statement::Block(statements) => {
             flatten_block(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth)?;
@@ -140,32 +144,41 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             flatten_expression(expression, opcodes, global_vars, vars, funcs, classes)?;
             opcodes.push(OpCode::Print);
         },
-        Statement::Declaration { name, value, data_type } => {
-            if depth == 0 && global_vars.iter().any(|s| s == name) || depth != 0 && vars.iter().any(|s| s == name) {
+        Statement::Declaration { name, value, data_type, is_static } => {
+            if *is_static {
+                return Err(FlattenError::StaticOutsideClass(name.clone()));
+            }
+            if depth == 0 && global_vars.iter().any(|(s, d)| s == name) || depth != 0 && vars.iter().any(|(s, d)| s == name) {
                 return Err(FlattenError::Shadowing(name.clone()));
             }
 
             flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
 
             if depth != 0 {
-                vars.push(name.clone());
+                vars.push((name.clone(), data_type.clone()));
             }
             else {
                 opcodes.push(OpCode::DefineGlobal);
-                global_vars.push(name.clone());
+                global_vars.push((name.clone(), data_type.clone()));
             }
         },
-        Statement::Function { name, data, should_override } => {
+        Statement::Function { name, data, should_override, is_static } => {
+            if *is_static {
+                return Err(FlattenError::StaticOutsideClass(name.clone()));
+            }
             if depth != 0 {
                 return Err(FlattenError::FunctionDeclarationInsideScope(name.to_owned()))
             }
             if funcs.contains_key(name) {
                 return Err(FlattenError::Shadowing(name.to_owned())); 
             }
+            if *should_override {
+                return Err(FlattenError::UnexpectedOverride(name.clone()));
+            }
 
             let index: usize = opcodes.len() + 1;
-            funcs.insert(name.clone(), index);
-            flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, false)?;
+            funcs.insert(name.clone(), (index, data.data_type.clone(), data.parameters.iter().map(|(d, _)| d.clone()).collect()));
+            flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, None)?;
         },
         Statement::Class { name, block, parent } => {
             if depth != 0 {
@@ -183,7 +196,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                     class.vars = p.vars.clone();
                     class.funcs = p.funcs.clone();
 
-                    for (_, (_, overridable)) in &mut class.funcs {
+                    for (_, (_, _, _, overridable)) in &mut class.funcs {
                         *overridable = true;
                     }
                 }
@@ -200,15 +213,15 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             if let Some(n) = parent {
                 if let Some(p) = classes.get(n) {
                     opcodes.push(OpCode::GetVar(0));
-                    opcodes.push(OpCode::Call { index: p.constructor, parameters: 0 });
+                    opcodes.push(OpCode::Call { index: p.constructor, parameters: 1 });
                     opcodes.push(OpCode::Pop(1));
                 }
             }
 
             for member in block {
                 match member {
-                    Statement::Declaration { name: var_name, value, data_type: _ } => {
-                        if classes.get(name).unwrap().vars.iter().any(|s| s == var_name) {
+                    Statement::Declaration { name: var_name, value, data_type, is_static: false } => {
+                        if classes.get(name).unwrap().vars.iter().any(|(s, _d)| s == var_name) {
                             return Err(FlattenError::Shadowing(var_name.clone()));
                         }
 
@@ -217,11 +230,11 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                         opcodes.push(OpCode::SetMember(var_name.clone()));
                         opcodes.push(OpCode::Pop(1));
 
-                        classes.get_mut(name).unwrap().vars.push(var_name.clone());
+                        classes.get_mut(name).unwrap().vars.push((var_name.clone(), data_type.clone()));
                     },
-                    Statement::Function { name: func_name, data, should_override } => {
+                    Statement::Function { name: func_name, data, should_override, is_static: false  } => {
                         let contains_func: bool = classes.get(name).unwrap().funcs.contains_key(func_name);
-                        if contains_func && (!*should_override || !classes.get(name).unwrap().funcs.get(func_name).unwrap().1) {
+                        if contains_func && (!*should_override || !classes.get(name).unwrap().funcs.get(func_name).unwrap().3) {
                             return Err(FlattenError::Shadowing(func_name.clone()));
                         }
                         if *should_override && !contains_func {
@@ -229,8 +242,30 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                         }
 
                         let index: usize = opcodes.len() + 1;
-                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, true)?;
-                        classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), (index, false));
+                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, Some(name))?;
+                        classes.get_mut(name).unwrap().funcs.insert(func_name.clone(), (index, data.data_type.clone(), data.parameters.iter().map(|(d, _)| d.clone()).collect(), false));
+                    },
+                    Statement::Declaration { name: var_name, value, data_type, is_static: true } => {
+                        if global_vars.iter().any(|(s, _)| s == &format!("{}.{}", name, var_name)) {
+                            return Err(FlattenError::Shadowing(var_name.clone()));
+                        }
+
+                        flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+                        opcodes.push(OpCode::DefineGlobal);
+
+                        global_vars.push((format!("{}.{}", name, var_name), data_type.clone()));
+                    },
+                    Statement::Function { name: func_name, data, should_override, is_static: true  } => {
+                        if *should_override {
+                            return Err(FlattenError::UnexpectedOverride(format!("{}.{}", name.clone(), func_name.clone())));
+                        }
+                        if funcs.iter().any(|(s, _)| s == &format!("{}.{}", name, func_name)) {
+                            return Err(FlattenError::Shadowing(func_name.clone()));
+                        }
+
+                        let index: usize = opcodes.len() + 1;
+                        flatten_function(data, opcodes, global_vars, funcs, classes, loop_starts, depth, None)?;
+                        funcs.insert(format!("{}.{}", name, func_name), (index, data.data_type.clone(), data.parameters.iter().map(|(d, _)| d.clone()).collect()));
                     },
                     statement => return Err(FlattenError::UnexpectedClassMember(statement.clone())),
                 }
@@ -246,7 +281,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
     Ok(())
 }
 
-fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
+fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<(String, DataType)>, vars: &mut Vec<(String, DataType)>, funcs: &mut HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize) -> Result<(), FlattenError> {
     let start_index: usize = vars.len();
     flatten_statements(statements, opcodes, global_vars, vars, funcs, classes, loop_starts, depth + 1)?;
 
@@ -256,97 +291,166 @@ fn flatten_block(statements: &[Statement], opcodes: &mut Vec<OpCode>, global_var
     Ok(())
 }
 
-fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>) -> Result<(), FlattenError> {
+fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global_vars: &Vec<(String, DataType)>, vars: &Vec<(String, DataType)>, funcs: &HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &HashMap<String, ClassData>) -> Result<DataType, FlattenError> {
     match expression {
-        Expression::Unary { operator, right } => flatten_unary(operator, right, opcodes, global_vars, vars, funcs, classes)?,
-        Expression::Binary { left, operator, right } => flatten_binary(left, operator, right, opcodes, global_vars, vars, funcs, classes)?,
+        Expression::Unary { operator, right } => Ok(flatten_unary(operator, right, opcodes, global_vars, vars, funcs, classes)?),
+        Expression::Binary { left, operator, right } => flatten_binary(left, operator, right, opcodes, global_vars, vars, funcs, classes),
         Expression::Assignment { target, value } => {
             match &**target {
                 Expression::Variable(i) => {
-                    flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
-                    opcodes.push(match vars.iter().rposition(|s| s == i) {
+                    let d: DataType = flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+                    opcodes.push(match vars.iter().rposition(|(s, _d)| s == i) {
                         Some(index) => OpCode::SetVar(index),
-                        None => match global_vars.iter().rposition(|s| s == i) {
+                        None => match global_vars.iter().rposition(|(s, _d)| s == i) {
                             Some(index) => OpCode::SetGlobal(index),
                             None => return Err(FlattenError::UndeclaredVariable(i.clone())),
                         }
                     });
+                    Ok(d)
                 },
                 Expression::MemberAccess { class, member } => {
+                    if let Expression::Variable(name) = &**class {
+                        if classes.contains_key(name) {
+                            if let Some(index) = global_vars.iter().position(|(s, _)| s == &format!("{}.{}", name, member)) {
+                                let d: DataType = flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+
+                                opcodes.push(OpCode::SetGlobal(index));
+                                return Ok(d);
+                            }
+                            else {
+                                return Err(FlattenError::UndeclaredClassVar(format!("{}.{}", name, member)));
+                            }
+                        }
+                    }
                     flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
-                    flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+                    let d: DataType = flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
                     opcodes.push(OpCode::SetMember(member.clone()));
-                }
+                    Ok(d)
+                },
                 _ => unreachable!(),
-            };
+            }
         },
-        Expression::Literal(l) => opcodes.push(OpCode::PushConst(l.clone())),
+        Expression::Literal(l) => { opcodes.push(OpCode::PushConst(l.clone())); Ok(DataType::try_from(l).unwrap()) },
         Expression::Call { callee, parameters } => {
             match &**callee {
                 Expression::Variable(i) => {
-                    if funcs.contains_key(i) {
-                        for parameter in parameters {
-                            flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                    if let Some(f) = funcs.get(i) {
+                        if parameters.len() != f.2.len() {
+                            return Err(FlattenError::UnexpectedParameterCount { callee: callee.clone(), expected: f.2.len(), recieved: parameters.len() })
+                        }
+                        for (i, parameter) in parameters.iter().enumerate() {
+                            let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                            if &d != f.2.get(i).unwrap() {
+                                return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: f.2.get(i).unwrap().clone(), recieved: d });
+                            }
                         }
 
-                        opcodes.push(OpCode::Call { index: funcs.get(i).unwrap().clone(), parameters: parameters.len() });
+                        opcodes.push(OpCode::Call { index: f.0, parameters: parameters.len() });
+                        Ok(f.1.clone().unwrap_or(DataType::Nullable(Box::new(DataType::Int))))
                     }
-                    else if classes.contains_key(i) {
+                    else if let Some(c) = classes.get(i) {
                         opcodes.push(OpCode::NewInstance(i.clone()));
-                        for parameter in parameters {
-                            flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                        if parameters.len() != 0 {
+                            return Err(FlattenError::UnexpectedParameterCount { callee: callee.clone(), expected: 0, recieved: parameters.len() });
                         }
 
-                        opcodes.push(OpCode::Call { index: classes.get(i).unwrap().constructor, parameters: parameters.len() });
+                        opcodes.push(OpCode::Call { index: c.constructor, parameters: parameters.len() + 1 });
+                        Ok(DataType::Instance(i.clone()))
                     }
                     else {
                         return Err(FlattenError::UndeclaredFunction(i.clone()));
                     }
                 },
                 Expression::MemberAccess { class, member } => {
-                    flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
+                    if let Expression::Variable(n) = &**class {
+                        if let Some(class_data) = classes.get(n) {
+                            if let Some((index, return_type, p)) = funcs.get(&format!("{}.{}", n, member)) {
+                                if parameters.len() != p.len() {
+                                    return Err(FlattenError::UnexpectedParameterCount { callee: callee.clone(), expected: p.len(), recieved: parameters.len() });
+                                }
+                                for (i, parameter) in parameters.iter().enumerate() {
+                                    let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
 
-                    for parameter in parameters {
-                        flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+                                    if &d != p.get(i).unwrap() {
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: p.get(i).unwrap().clone(), recieved: d });
+                                    }
+                                }
+                                opcodes.push(OpCode::Call { index: *index, parameters: parameters.len() });
+                                return Ok(return_type.as_ref().map_or_else(|| DataType::Nullable(Box::new(DataType::Int)), |d| d.clone()));
+                            }
+                        }
                     }
 
-                    opcodes.push(OpCode::CallMember { member: member.clone(), parameters: parameters.len() });
+                    let class_type: DataType = flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
+
+                    if let DataType::Instance(class_name) = class_type {
+                        if let Some(class_data) = classes.get(&class_name) {
+                            if let Some((index, d, p, _)) = class_data.funcs.get(member) {
+                                if parameters.len() != p.len() {
+                                    return Err(FlattenError::UnexpectedParameterCount { callee: callee.clone(), expected: p.len(), recieved: parameters.len() });
+                                }
+
+                                for (i, parameter) in parameters.iter().enumerate() {
+                                    let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
+
+                                    if &d != p.get(i).unwrap() {
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: p.get(i).unwrap().clone(), recieved: d });
+                                    }
+                                }
+
+                                opcodes.push(OpCode::Call { index: *index, parameters: parameters.len() + 1 });
+                                return Ok(d.as_ref().map_or(DataType::Nullable(Box::new(DataType::Int)), |d| d.clone()));
+                            }
+                        }
+                        return Err(FlattenError::UndeclaredClass(class_name));
+                    }
+                    Err(FlattenError::ExpressionIsNotClass(class.clone()))
                 },
                 _ => return Err(FlattenError::InvalidFunctionCallee(callee.clone())),
             }
         },
         Expression::MemberAccess { class, member } => {
-            flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
+            if let Expression::Variable(name) = &**class {
+                if classes.contains_key(name) {
+                    if let Some(index) = global_vars.iter().position(|(s, _)| s == &format!("{}.{}", name, member)) {
+                        opcodes.push(OpCode::GetGlobal(index));
+                        return Ok(global_vars.get(index).unwrap().1.clone());
+                    }
+                    else {
+                        return Err(FlattenError::UndeclaredClassVar(format!("{}.{}", name, member)));
+                    }
+                }
+            }
+            let d: DataType = flatten_expression(class, opcodes, global_vars, vars, funcs, classes)?;
 
             opcodes.push(OpCode::GetMember(member.clone()));
+            Ok(d)
         },
         Expression::Variable(i) => {
-            match vars.iter().rposition(|s| s == i) {
-                Some(index) => opcodes.push(OpCode::GetVar(index)),
-                None => match global_vars.iter().rposition(|s| s == i) {
-                    Some(index) => opcodes.push(OpCode::GetGlobal(index)),
+            match vars.iter().rposition(|(s, d)| s == i) {
+                Some(index) => { opcodes.push(OpCode::GetVar(index)); Ok(vars.get(index).unwrap().1.clone()) },
+                None => match global_vars.iter().rposition(|(s, d)| s == i) {
+                    Some(index) => { opcodes.push(OpCode::GetGlobal(index)); Ok(global_vars.get(index).unwrap().1.clone()) },
                     None => return Err(FlattenError::UndeclaredVariable(i.clone())),
                 }
             }
         },
-    };
-
-    Ok(())
+    }
 }
 
-fn flatten_unary(operator: &UnaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>) -> Result<(), FlattenError> {
-    flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
+fn flatten_unary(operator: &UnaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &Vec<(String, DataType)>, vars: &Vec<(String, DataType)>, funcs: &HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &HashMap<String, ClassData>) -> Result<DataType, FlattenError> {
+    let d: DataType = flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
     
     opcodes.push(match operator {
         UnaryOp::LNot => OpCode::LNot,
         UnaryOp::Negate => OpCode::Negate,
     });
 
-    Ok(())
+    Ok(d)
 }
 
-fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>) -> Result<(), FlattenError> {
-    match operator {
+fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expression>, opcodes: &mut Vec<OpCode>, global_vars: &Vec<(String, DataType)>, vars: &Vec<(String, DataType)>, funcs: &HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &HashMap<String, ClassData>) -> Result<DataType, FlattenError> {
+    let d: DataType = match operator {
         BinaryOp::Add => normal_binary(left, right, OpCode::Add, opcodes, global_vars, vars, funcs, classes)?,
         BinaryOp::Subtract => normal_binary(left, right, OpCode::Subtract, opcodes, global_vars, vars, funcs, classes)?,
         BinaryOp::Multiply => normal_binary(left, right, OpCode::Multiply, opcodes, global_vars, vars, funcs, classes)?,
@@ -365,18 +469,19 @@ fn flatten_binary(left: &Box<Expression>, operator: &BinaryOp, right: &Box<Expre
         },
     };
 
-    Ok(())
+    Ok(d)
 }
 
-fn normal_binary(left: &Box<Expression>, right: &Box<Expression>, opcode: OpCode, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>) -> Result<(), FlattenError> {
-    flatten_expression(left, opcodes, global_vars, vars, funcs, classes)?;
-    flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
+fn normal_binary(left: &Box<Expression>, right: &Box<Expression>, opcode: OpCode, opcodes: &mut Vec<OpCode>, global_vars: &Vec<(String, DataType)>, vars: &Vec<(String, DataType)>, funcs: &HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &HashMap<String, ClassData>) -> Result<DataType, FlattenError> {
+    let l: DataType = flatten_expression(left, opcodes, global_vars, vars, funcs, classes)?;
+    let r: DataType = flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
+    let o: &OpCode = &opcode.clone();
     opcodes.push(opcode);
 
-    Ok(())
+    Ok(DataType::try_from(&(l, BinaryOp::try_from(o).map_err(|ec| FlattenError::UnexpectedBinaryOpOpCode(ec.clone()))?, r)).map_err(|(left, operator, right)| FlattenError::UnexpectedBinaryOpOperands { left: left.clone(), operator: operator.clone(), right: right.clone() })?)
 }
 
-fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on: bool, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>) -> Result<(), FlattenError> {
+fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on: bool, opcodes: &mut Vec<OpCode>, global_vars: &Vec<(String, DataType)>, vars: &Vec<(String, DataType)>, funcs: &HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &HashMap<String, ClassData>) -> Result<DataType, FlattenError> {
     flatten_expression(left, opcodes, global_vars, vars, funcs, classes)?;
 
     let start_index: usize = opcodes.len();
@@ -385,24 +490,24 @@ fn short_circuit_binary(left: &Box<Expression>, right: &Box<Expression>, jump_on
     flatten_expression(right, opcodes, global_vars, vars, funcs, classes)?;
     *opcodes.get_mut(start_index).unwrap() = if jump_on { OpCode::JumpIfTrue { index: opcodes.len(), pop: false } } else { OpCode::JumpIfFalse { index: opcodes.len(), pop: false } };
 
-    Ok(())
+    Ok(DataType::Bool)
 }
 
-fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<String>, funcs: &mut HashMap<String, usize>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize, is_class_function: bool) -> Result<(), FlattenError> {
+fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars: &mut Vec<(String, DataType)>, funcs: &mut HashMap<String, (usize, Option<DataType>, Vec<DataType>)>, classes: &mut HashMap<String, ClassData>, loop_starts: &mut Vec<(usize, usize, Vec<usize>)>, depth: usize, class_name: Option<&String>) -> Result<(), FlattenError> {
     let jump_index: usize = opcodes.len();
     opcodes.push(OpCode::Jump(0));
 
-    let mut func_vars: Vec<String> = Vec::new();
+    let mut func_vars: Vec<(String, DataType)> = Vec::new();
 
-    if is_class_function {
-        func_vars.push("this".to_owned());
+    if let Some(n) = class_name {
+        func_vars.push(("this".to_owned(), DataType::Instance(n.clone())));
     }
 
-    for (_d, s) in &data.parameters {
-        if func_vars.iter().any(|var| var == s) {
-            return Err(FlattenError::Shadowing(s.clone()));
+    for (data_type, name) in &data.parameters {
+        if func_vars.iter().any(|(s, _d)| s == name) {
+            return Err(FlattenError::Shadowing(name.clone()));
         }
-        func_vars.push(s.clone());
+        func_vars.push((name.clone(), data_type.clone()));
     }
 
     opcodes.push(OpCode::NewStack);
@@ -415,4 +520,77 @@ fn flatten_function(data: &FunctionData, opcodes: &mut Vec<OpCode>, global_vars:
     *opcodes.get_mut(jump_index).unwrap() = OpCode::Jump(opcodes.len());
 
     Ok(())
+}
+
+impl<'a> TryFrom<&'a LiteralType> for DataType {
+    type Error = &'a LiteralType;
+
+    fn try_from(literal_type: &LiteralType) -> Result<Self, Self::Error> {
+        Ok(match literal_type {
+            LiteralType::Bool(_) => DataType::Bool,
+            LiteralType::Int(_) => DataType::Int,
+            LiteralType::Float(_) => DataType::Float,
+            LiteralType::String(_) => DataType::String,
+            LiteralType::Null => DataType::Nullable(Box::new(DataType::Int)),
+        })
+    }
+}
+
+impl<'a> TryFrom<&'a (DataType, BinaryOp, DataType)> for DataType {
+    type Error = &'a (DataType, BinaryOp, DataType);
+
+    fn try_from(value: &'a (DataType, BinaryOp, DataType)) -> Result<Self, Self::Error> {
+        match value {
+            (DataType::Int, BinaryOp::Add, DataType::Int) => Ok(DataType::Int),
+            (DataType::Int, BinaryOp::Subtract, DataType::Int) => Ok(DataType::Int),
+            (DataType::Int, BinaryOp::Multiply, DataType::Int) => Ok(DataType::Int),
+            (DataType::Int, BinaryOp::Divide, DataType::Int) => Ok(DataType::Int),
+
+            (DataType::Float, BinaryOp::Add, DataType::Float) => Ok(DataType::Float),
+            (DataType::Float, BinaryOp::Subtract, DataType::Float) => Ok(DataType::Float),
+            (DataType::Float, BinaryOp::Multiply, DataType::Float) => Ok(DataType::Float),
+            (DataType::Float, BinaryOp::Divide, DataType::Float) => Ok(DataType::Float),
+
+            (DataType::String, BinaryOp::Add, DataType::String) => Ok(DataType::String),
+
+            (DataType::Bool, BinaryOp::LAnd, DataType::Bool) => Ok(DataType::Bool),
+            (DataType::Bool, BinaryOp::LOr, DataType::Bool) => Ok(DataType::Bool),
+
+            (DataType::Int, BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual, DataType::Int) => Ok(DataType::Bool),
+            (DataType::Float, BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual, DataType::Float) => Ok(DataType::Bool),
+            (DataType::String, BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual, DataType::String) => Ok(DataType::Bool),
+
+            (DataType::Int, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Int) => Ok(DataType::Bool),
+            (DataType::Float, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Float) => Ok(DataType::Bool),
+            (DataType::String, BinaryOp::Equal | BinaryOp::NotEqual, DataType::String) => Ok(DataType::Bool),
+            (DataType::Bool, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Bool) => Ok(DataType::Bool),
+            (DataType::Instance(_), BinaryOp::Equal | BinaryOp::NotEqual, DataType::Instance(_)) => Ok(DataType::Bool),
+
+            (DataType::Nullable(inner1), BinaryOp::Equal | BinaryOp::NotEqual, DataType::Nullable(inner2)) if inner1 == inner2 => Ok(DataType::Bool),
+            (DataType::Nullable(inner), BinaryOp::Equal | BinaryOp::NotEqual, other) if inner.as_ref() == other => Ok(DataType::Bool),
+            (other, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Nullable(inner)) if inner.as_ref() == other => Ok(DataType::Bool),
+
+            _ => Err(value),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a OpCode> for BinaryOp {
+    type Error = &'a OpCode;
+
+    fn try_from(opcode: &'a OpCode) -> Result<Self, Self::Error> {
+        match opcode {
+            OpCode::Add => Ok(BinaryOp::Add),
+            OpCode::Subtract => Ok(BinaryOp::Subtract),
+            OpCode::Multiply => Ok(BinaryOp::Multiply),
+            OpCode::Divide => Ok(BinaryOp::Divide),
+            OpCode::Equal => Ok(BinaryOp::Equal),
+            OpCode::NotEqual => Ok(BinaryOp::NotEqual),
+            OpCode::Less => Ok(BinaryOp::Less),
+            OpCode::LessEqual => Ok(BinaryOp::LessEqual),
+            OpCode::Greater => Ok(BinaryOp::Greater),
+            OpCode::GreaterEqual => Ok(BinaryOp::GreaterEqual),
+            _ => Err(opcode),
+        }
+    }
 }

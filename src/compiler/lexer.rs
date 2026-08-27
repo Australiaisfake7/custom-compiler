@@ -10,7 +10,7 @@ pub enum Token {
     Assign, Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     LAnd, LOr, LNot,
 
-    Let, Print, Fun, DataType(DataType), Nullable, Null, Override,
+    Let, Print, Fun, DataType(DataType), Nullable, Static, Null, Override,
 
     If, Else, For, While, Class, Return, Continue, Break,
 
@@ -19,7 +19,7 @@ pub enum Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    Int, Float, String, Bool, Instance, Nullable(Box<DataType>),
+    Int, Float, String, Bool, Instance(String), Nullable(Box<DataType>),
 }
 
 #[derive(Debug)]
@@ -190,12 +190,12 @@ impl<'a> Scanner<'a> {
                     "false" => Token::Bool(false),
                     "null" => Token::Null,
                     "nullable" => Token::Nullable,
+                    "static" => Token::Static,
                     "let" => Token::Let,
                     "int" => Token::DataType(DataType::Int),
                     "float" => Token::DataType(DataType::Float),
                     "string" => Token::DataType(DataType::String),
                     "bool" => Token::DataType(DataType::Bool),
-                    "instance" => Token::DataType(DataType::Instance),
                     "print" => Token::Print,
                     "fun" => Token::Fun,
                     "return" => Token::Return,

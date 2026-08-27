@@ -1,5 +1,5 @@
 use super::lexer::{Token, DataType};
-use std::{collections::HashMap, convert::TryFrom, rc::Rc, cell::RefCell};
+use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -75,14 +75,14 @@ pub enum Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Expression(Box<Expression>),
-    Declaration {name: String, value: Box<Expression>, data_type: DataType},
+    Declaration { name: String, value: Box<Expression>, data_type: DataType, is_static: bool },
     Block(Vec<Statement>),
     If { condition: Box<Expression>, block: Vec<Statement> },
     IfElse { condition: Box<Expression>, block1: Vec<Statement>, block2: Vec<Statement> },
     Print(Box<Expression>),
     While { condition: Box<Expression>, block: Vec<Statement> },
     For { initializer: Box<Statement>, condition: Box<Expression>, update: Box<Statement>, block: Vec<Statement> },
-    Function { name: String, data: FunctionData, should_override: bool },
+    Function { name: String, data: FunctionData, should_override: bool, is_static: bool },
     Return(Option<Box<Expression>>),
     Class { name: String, block: Vec<Statement>, parent: Option<String> },
     Continue, Break,
@@ -186,7 +186,7 @@ impl Parser {
     }
     fn statement(&mut self) -> Result<Statement, ParseError> {
         if self.match_advance(&[Token::Let]) {
-            return self.declaration();
+            return self.declaration(false);
         }
         if self.match_advance(&[Token::LeftBrace]) {
             return self.block();
@@ -204,7 +204,7 @@ impl Parser {
             return self.for_loop();
         }
         if self.match_advance(&[Token::Fun]) {
-            return self.function();
+            return self.function(false);
         }
         if self.match_advance(&[Token::Return]) {
             return self.return_statement();
@@ -218,6 +218,15 @@ impl Parser {
         if self.match_advance(&[Token::Break]) {
             return self.break_statement();
         }
+        if self.match_advance(&[Token::Static]) {
+        if self.match_advance(&[Token::Let]) {
+            return self.declaration(true);
+        }
+        if self.match_advance(&[Token::Fun]) {
+            return self.function(true);
+        }
+        return Err(ParseError::UnexpectedToken { expected: "'let' or 'fun' after 'static'", got: self.peek()?.clone() });
+    }
 
         let expr: Box<Expression> = self.expression()?;
         if !self.match_advance(&[Token::Semicolon]) {
@@ -226,7 +235,7 @@ impl Parser {
 
         return Ok(Statement::Expression(expr));
     }
-    fn declaration(&mut self) -> Result<Statement, ParseError> {
+    fn declaration(&mut self, is_static: bool) -> Result<Statement, ParseError> {
         let nullable: bool = self.match_advance(&[Token::Nullable]);
 
         let t: DataType = match self.advance()? {
@@ -236,6 +245,12 @@ impl Parser {
 
                 data_type
             },
+            Token::Identifier(c) => {
+                let mut data_type: DataType = DataType::Instance(c.clone());
+                if nullable { data_type = DataType::Nullable(Box::new(data_type)); }
+
+                data_type
+            }
             token => return Err(ParseError::UnexpectedToken { expected: "Data Type", got: token.clone() })
         };
         let n: String = match self.advance()? {
@@ -243,7 +258,7 @@ impl Parser {
             token => return Err(ParseError::UnexpectedToken { expected: "Identifier", got: token.clone() })
         };
         let v: Box<Expression> = match self.advance()? {
-            Token::Semicolon => return Ok(Statement::Declaration { name: n, value: Box::new(Expression::Literal(LiteralType::Null)), data_type: t }),
+            Token::Semicolon => return Ok(Statement::Declaration { name: n, value: Box::new(Expression::Literal(LiteralType::Null)), data_type: t, is_static }),
             Token::Assign => self.expression()?,
             token => return Err(ParseError::UnexpectedToken { expected: "';'", got: token.clone() })
         };
@@ -251,7 +266,7 @@ impl Parser {
             return Err(ParseError::UnexpectedToken { expected: "';'", got: self.peek()?.clone() });
         }
 
-        return Ok(Statement::Declaration { name: n, value: v, data_type: t });
+        return Ok(Statement::Declaration { name: n, value: v, data_type: t, is_static });
     }
     fn block(&mut self) -> Result<Statement, ParseError> {
         let mut stmts: Vec<Statement> = Vec::new();
@@ -355,7 +370,7 @@ impl Parser {
 
         Ok(Statement::For { initializer: Box::new(initializer), condition, update: Box::new(update), block })
     }
-    fn function(&mut self) -> Result<Statement, ParseError> {
+    fn function(&mut self, is_static: bool) -> Result<Statement, ParseError> {
         let should_override: bool = self.match_advance(&[Token::Override]);
 
         let data_type: Option<DataType> = match self.peek()?.clone() {
@@ -395,7 +410,7 @@ impl Parser {
             _ => unreachable!(),
         };
 
-        Ok(Statement::Function { name, data: FunctionData { data_type, parameters, block }, should_override})
+        Ok(Statement::Function { name, data: FunctionData { data_type, parameters, block }, should_override, is_static })
     }
     fn parameter(&mut self) -> Result<(DataType, String), ParseError> {
         let d: DataType = match self.advance()? {
