@@ -175,7 +175,7 @@ impl<'a> Scanner<'a> {
 
                 loop {
                     match self.peek() {
-                        Some(a) if a.is_alphabetic() => { s.push(a); self.advance(); },
+                        Some(a) if a.is_alphanumeric() => { s.push(a); self.advance(); },
                         _ => break,
                     }
                 }
