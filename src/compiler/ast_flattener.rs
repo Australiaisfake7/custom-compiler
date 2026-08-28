@@ -137,7 +137,7 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
             vars.truncate(outer_vars_len);
 
             for index in unpatched_breaks {
-                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len() - 1);
+                *opcodes.get_mut(index).unwrap() = OpCode::Jump(opcodes.len());
             }
         },
         Statement::Print(expression) => {
