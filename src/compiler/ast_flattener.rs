@@ -340,13 +340,14 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                         }
                         for (i, parameter) in parameters.iter().enumerate() {
                             let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
-                            if &d != f.2.get(i).unwrap() {
-                                return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: f.2.get(i).unwrap().clone(), recieved: d });
+                            let expected = f.2.get(i).unwrap();
+                            if !is_compatible(expected, &d) {
+                                return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
                             }
                         }
 
                         opcodes.push(OpCode::Call { index: f.0, parameters: parameters.len() });
-                        Ok(f.1.clone().unwrap_or(DataType::Nullable(Box::new(DataType::Int))))
+                        Ok(f.1.clone().unwrap_or(DataType::Null))
                     }
                     else if let Some(c) = classes.get(i) {
                         opcodes.push(OpCode::NewInstance(i.clone()));
@@ -370,13 +371,13 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                                 }
                                 for (i, parameter) in parameters.iter().enumerate() {
                                     let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
-
-                                    if &d != p.get(i).unwrap() {
-                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: p.get(i).unwrap().clone(), recieved: d });
+                                    let expected = p.get(i).unwrap();
+                                    if !is_compatible(expected, &d) {
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
                                     }
                                 }
                                 opcodes.push(OpCode::Call { index: *index, parameters: parameters.len() });
-                                return Ok(return_type.as_ref().map_or_else(|| DataType::Nullable(Box::new(DataType::Int)), |d| d.clone()));
+                                return Ok(return_type.clone().unwrap_or(DataType::Null));
                             }
                         }
                     }
@@ -392,14 +393,14 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
 
                                 for (i, parameter) in parameters.iter().enumerate() {
                                     let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
-
-                                    if &d != p.get(i).unwrap() {
-                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: p.get(i).unwrap().clone(), recieved: d });
+                                    let expected = p.get(i).unwrap();
+                                    if !is_compatible(expected, &d) {
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
                                     }
                                 }
 
                                 opcodes.push(OpCode::Call { index: *index, parameters: parameters.len() + 1 });
-                                return Ok(d.as_ref().map_or(DataType::Nullable(Box::new(DataType::Int)), |d| d.clone()));
+                                return Ok(d.clone().unwrap_or(DataType::Null));
                             }
                         }
                         return Err(FlattenError::UndeclaredClass(class_name));
@@ -531,7 +532,7 @@ impl<'a> TryFrom<&'a LiteralType> for DataType {
             LiteralType::Int(_) => DataType::Int,
             LiteralType::Float(_) => DataType::Float,
             LiteralType::String(_) => DataType::String,
-            LiteralType::Null => DataType::Nullable(Box::new(DataType::Int)),
+            LiteralType::Null => DataType::Null,
         })
     }
 }
@@ -566,6 +567,9 @@ impl<'a> TryFrom<&'a (DataType, BinaryOp, DataType)> for DataType {
             (DataType::Bool, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Bool) => Ok(DataType::Bool),
             (DataType::Instance(_), BinaryOp::Equal | BinaryOp::NotEqual, DataType::Instance(_)) => Ok(DataType::Bool),
 
+            (DataType::Null, BinaryOp::Equal | BinaryOp::NotEqual, _) => Ok(DataType::Bool),
+            (_, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Null) => Ok(DataType::Bool),
+
             (DataType::Nullable(inner1), BinaryOp::Equal | BinaryOp::NotEqual, DataType::Nullable(inner2)) if inner1 == inner2 => Ok(DataType::Bool),
             (DataType::Nullable(inner), BinaryOp::Equal | BinaryOp::NotEqual, other) if inner.as_ref() == other => Ok(DataType::Bool),
             (other, BinaryOp::Equal | BinaryOp::NotEqual, DataType::Nullable(inner)) if inner.as_ref() == other => Ok(DataType::Bool),
@@ -592,5 +596,13 @@ impl<'a> TryFrom<&'a OpCode> for BinaryOp {
             OpCode::GreaterEqual => Ok(BinaryOp::GreaterEqual),
             _ => Err(opcode),
         }
+    }
+}
+
+fn is_compatible(expected: &DataType, received: &DataType) -> bool {
+    match (expected, received) {
+        (DataType::Nullable(_), DataType::Null) => true,
+        (DataType::Nullable(inner), actual) if inner.as_ref() == actual => true,
+        (expected, received) => expected == received,
     }
 }
