@@ -20,7 +20,8 @@ enum FlattenError {
     Shadowing(String), FunctionDeclarationInsideScope(String), ClassDeclarationInsideScope(String), UnexpectedClassMember(Statement), UnexpectedOverride(String),
     UndeclaredClassVar(String),
     UnexpectedBinaryOpOpCode(OpCode), UnexpectedBinaryOpOperands { left: DataType, operator: BinaryOp, right: DataType }, UnexpectedParameterCount { callee: Box<Expression>, expected: usize, recieved: usize },
-    ExpressionIsNotClass(Box<Expression>), StaticOutsideClass(String), UnexpectedParameterType { callee: Box<Expression>, expected: DataType, recieved: DataType },
+    ExpressionIsNotClass(Box<Expression>), StaticOutsideClass(String), UnexpectedParameterType { callee: Box<Expression>, expected: DataType, recieved: DataType, index: usize },
+    UnexpectedDeclarationValueType { variable: String, expected: DataType, recieved: DataType },
 }
 struct ClassData {
     vars: Vec<(String, DataType)>,
@@ -152,7 +153,11 @@ fn flatten_statement(statement: &Statement, opcodes: &mut Vec<OpCode>, global_va
                 return Err(FlattenError::Shadowing(name.clone()));
             }
 
-            flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+            let d: DataType = flatten_expression(value, opcodes, global_vars, vars, funcs, classes)?;
+
+            if &d != data_type {
+                return Err(FlattenError::UnexpectedDeclarationValueType { variable: name.clone(), expected: data_type.clone(), recieved: d });
+            }
 
             if depth != 0 {
                 vars.push((name.clone(), data_type.clone()));
@@ -342,7 +347,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                             let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
                             let expected = f.2.get(i).unwrap();
                             if !is_compatible(expected, &d) {
-                                return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
+                                return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d, index: i });
                             }
                         }
 
@@ -373,7 +378,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                                     let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
                                     let expected = p.get(i).unwrap();
                                     if !is_compatible(expected, &d) {
-                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d, index: i });
                                     }
                                 }
                                 opcodes.push(OpCode::Call { index: *index, parameters: parameters.len() });
@@ -395,7 +400,7 @@ fn flatten_expression(expression: &Expression, opcodes: &mut Vec<OpCode>, global
                                     let d: DataType = flatten_expression(parameter, opcodes, global_vars, vars, funcs, classes)?;
                                     let expected = p.get(i).unwrap();
                                     if !is_compatible(expected, &d) {
-                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d });
+                                        return Err(FlattenError::UnexpectedParameterType { callee: callee.clone(), expected: expected.clone(), recieved: d, index: i });
                                     }
                                 }
 
